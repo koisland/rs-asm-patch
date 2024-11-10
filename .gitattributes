@@ -1,0 +1,6 @@
+data/mPanPan1_merged_dedup_asm.fa.gz filter=lfs diff=lfs merge=lfs -text
+data/mPanPan1_merged_dedup_asm_query.fa.gz filter=lfs diff=lfs merge=lfs -text
+data/mPanPan1.matpat.ALR.500kbp.bed filter=lfs diff=lfs merge=lfs -text
+data/mPanPan1_cen_misassemblies.bed filter=lfs diff=lfs merge=lfs -text
+data/mPanPan1_cen_misassemblies_query.bed filter=lfs diff=lfs merge=lfs -text
+data/mPanPan1_trim.paf filter=lfs diff=lfs merge=lfs -text
