@@ -194,6 +194,22 @@ pub fn get_concensus(
                             &ref_misasm_itree,
                             paf_rec.target_name(),
                         );
+                        if largest_target_misassembly.is_some() {
+                            log::debug!(
+                                "Deletion in query with respect to reference ({}, {}):",
+                                target_start,
+                                target_stop
+                            );
+                            log::debug!(
+                                "\tTarget name: {}, {:?}",
+                                paf_rec.target_name(),
+                                largest_target_misassembly.as_ref().map(|m| (
+                                    m.first,
+                                    m.last,
+                                    m.metadata()
+                                )),
+                            );
+                        }
                         // Added sequence in target due to misassemblies associated with drop in read coverage.
                         // Remove sequence.
                         if let Some(Ok(Misassembly::MISJOIN | Misassembly::GAP)) =
@@ -212,6 +228,22 @@ pub fn get_concensus(
                             &ref_misasm_itree,
                             paf_rec.target_name(),
                         );
+                        if largest_target_misassembly.is_some() {
+                            log::debug!(
+                                "Insertion in query with respect to reference ({}, {}):",
+                                target_start,
+                                target_stop
+                            );
+                            log::debug!(
+                                "\tTarget name: {}, {:?}",
+                                paf_rec.target_name(),
+                                largest_target_misassembly.as_ref().map(|m| (
+                                    m.first,
+                                    m.last,
+                                    m.metadata()
+                                )),
+                            );
+                        }
                         // Deleted sequence in target as insertion in other assembly
                         // Add sequence from query.
                         if let Some(Ok(
@@ -257,16 +289,24 @@ pub fn get_concensus(
             );
             let ref_gap_mtype = get_misassembly_from_itv(ref_gap_misassembly);
             let qry_gap_mtype = get_misassembly_from_itv(qry_gap_misassembly);
-            log::debug!(
-                "\tTarget name: {}, {:?}",
-                paf_rec.target_name(),
-                ref_gap_mtype,
-            );
-            log::debug!(
-                "\tQuery name: {}, {:?}",
-                paf_rec.query_name(),
-                qry_gap_mtype,
-            );
+            if ref_gap_mtype.is_some() || qry_gap_mtype.is_some() {
+                log::debug!(
+                    "Misassemblies between alignments at ({}, {}):",
+                    gap_start,
+                    gap_stop
+                );
+                log::debug!(
+                    "\tTarget name: {}, {:?}",
+                    paf_rec.target_name(),
+                    ref_gap_mtype,
+                );
+                log::debug!(
+                    "\tQuery name: {}, {:?}",
+                    paf_rec.query_name(),
+                    qry_gap_mtype,
+                );
+            }
+
             match (ref_gap_mtype, qry_gap_mtype) {
                 // Fix misassembly in target with query.
                 (Some(_), None) => {
