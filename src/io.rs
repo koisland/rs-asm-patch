@@ -48,7 +48,13 @@ pub fn read_bed(
                     metadata: metadata_fn(other_cols),
                 })
             })
-            .or_default();
+            .or_insert_with(|| {
+                vec![Interval {
+                    first,
+                    last,
+                    metadata: metadata_fn(other_cols),
+                }]
+            });
     }
     for (roi, intervals) in intervals.into_iter() {
         trees.0.entry(roi).or_insert(COITree::new(&intervals));
@@ -163,7 +169,7 @@ pub fn update_contig_boundaries(
         if let Some(ctg) = ctgs.get_mut(0) {
             ctg.start = 0;
         }
-        let last_idx = ctgs.len() - 1;
+        let last_idx = ctgs.len().saturating_sub(1);
         if let Some(ctg) = ctgs.get_mut(last_idx) {
             let lengths = if ctg.category == ContigType::Target {
                 &ref_lengths
