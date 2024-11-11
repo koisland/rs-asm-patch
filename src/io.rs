@@ -93,10 +93,10 @@ pub fn get_faidx(
 
         Ok((fasta::fai::Index::from(records), Some(gzi)))
     } else {
-        let fai_fname = format!("{:?}.fai", fa.as_ref().file_name().unwrap());
-        if let Ok(fai) = fasta::fai::read(fai_fname) {
+        if let Ok(fai) = fai {
             return Ok((fai, None));
         }
+        log::debug!("No existing faidx for {fa_path:?}. Generating...");
         Ok((fasta::index(fa)?, None))
     }
 }
