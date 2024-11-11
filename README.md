@@ -26,6 +26,7 @@ cargo run -- \
 -i data/mPanPan1_trim.paf \
 -r data/mPanPan1_merged_dedup_asm.fa.gz \
 -q data/mPanPan1_merged_dedup_asm_query.fa.gz \
---ref-misasm-bed data/mPanPan1_cen_misassemblies.bed 
---query-misasm-bed data/mPanPan1_cen_misassemblies_query.bed 
+--ref-misasm-bed data/mPanPan1_cen_misassemblies.bed \
+--qry-misasm-bed data/mPanPan1_cen_misassemblies_query.bed \
+--log-level Debug
 ```

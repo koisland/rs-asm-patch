@@ -20,9 +20,13 @@ pub struct Args {
     #[arg(long)]
     pub ref_misasm_bed: PathBuf,
 
-    /// Regions to filter alignments in reference
+    /// Query misassembly bed.
     #[arg(long)]
-    pub roi_bed: Option<PathBuf>,
+    pub qry_misasm_bed: PathBuf,
+
+    /// Regions to filter alignments in reference.
+    #[arg(long)]
+    pub ref_roi_bed: Option<PathBuf>,
 
     /// Output fasta file.
     #[arg(short, long)]
@@ -31,4 +35,8 @@ pub struct Args {
     /// Output BED file with misassemblies.
     #[arg(short = 'b', long)]
     pub output_bed: Option<PathBuf>,
+
+    /// Log level.
+    #[arg(long, default_value = "Info")]
+    pub log_level: String,
 }

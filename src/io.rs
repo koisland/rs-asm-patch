@@ -16,7 +16,7 @@ pub fn read_bed(
     metadata_fn: impl Fn(&str) -> Option<String>,
 ) -> eyre::Result<RegionIntervalTrees> {
     let mut intervals: RegionIntervals = HashMap::new();
-    let mut trees: RegionIntervalTrees = HashMap::new();
+    let mut trees: RegionIntervalTrees = RegionIntervalTrees(HashMap::new());
 
     let Some(bed) = bed else {
         return Ok(trees);
@@ -27,7 +27,8 @@ pub fn read_bed(
     for line in bed_reader.lines() {
         let line = line?;
 
-        let Some((name, start, stop, other_cols)) = line.splitn(3, '\t').collect_tuple() else {
+        let Some((name, start, stop, other_cols)) = line.splitn(4, '\t').collect_tuple() else {
+            log::error!("Invalid line: {line}");
             continue;
         };
         let (first, last) = (start.parse::<i32>()?, stop.parse::<i32>()?);
@@ -44,7 +45,7 @@ pub fn read_bed(
             .or_default();
     }
     for (roi, intervals) in intervals.into_iter() {
-        trees.entry(roi).or_insert(COITree::new(&intervals));
+        trees.0.entry(roi).or_insert(COITree::new(&intervals));
     }
     Ok(trees)
 }
