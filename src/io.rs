@@ -15,9 +15,7 @@ use noodles::{
 };
 use paf::{PafRecord, Reader};
 
-use crate::concensus::{Contig, ContigType};
-
-use super::{RegionIntervalTrees, RegionIntervals};
+use super::interval::{Contig, ContigType, RegionIntervalTrees, RegionIntervals};
 
 pub fn read_bed(
     bed: Option<impl AsRef<Path>>,

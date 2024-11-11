@@ -1,134 +1,14 @@
 use std::{collections::HashMap, str::FromStr};
 
-use coitrees::{GenericInterval, IntervalNode, IntervalTree};
-use eyre::bail;
+use coitrees::{GenericInterval, IntervalTree};
 use itertools::Itertools;
 use paf::PafRecord;
 
-use crate::RegionIntervalTrees;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ContigType {
-    Target,
-    Query,
-    Spacer,
-}
-
-#[derive(Debug)]
-pub struct Contig {
-    pub name: String,
-    pub category: ContigType,
-    pub start: u32,
-    pub stop: u32,
-}
-
-impl From<ContigType> for Contig {
-    fn from(category: ContigType) -> Self {
-        Contig {
-            name: String::new(),
-            category,
-            start: 0,
-            stop: 0,
-        }
-    }
-}
-
-#[allow(clippy::upper_case_acronyms)]
-#[derive(Debug, PartialEq, Eq)]
-pub enum Misassembly {
-    MISJOIN,
-    GAP,
-    COLLAPSE,
-    ERROR,
-    HET,
-}
-
-impl FromStr for Misassembly {
-    type Err = eyre::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "MISJOIN" => Misassembly::MISJOIN,
-            "GAP" => Misassembly::GAP,
-            "COLLAPSE" | "COLLAPSE_VAR" => Misassembly::COLLAPSE,
-            "ERROR" => Misassembly::ERROR,
-            "HET" => Misassembly::HET,
-            _ => bail!("Invalid misassembly type. ({s})"),
-        })
-    }
-}
-
-#[derive(Debug)]
-enum CigarOp {
-    Match,
-    Mismatch,
-    Insertion,
-    Deletion,
-}
-
-impl TryFrom<char> for CigarOp {
-    type Error = eyre::Error;
-
-    fn try_from(value: char) -> Result<Self, Self::Error> {
-        match value {
-            '=' => Ok(CigarOp::Match),
-            'X' => Ok(CigarOp::Mismatch),
-            'I' => Ok(CigarOp::Insertion),
-            'D' => Ok(CigarOp::Deletion),
-            _ => bail!("Invalid cigar operation ({value})."),
-        }
-    }
-}
-
-fn get_cg_ops(cg: &str) -> eyre::Result<Vec<(u32, CigarOp)>> {
-    let mut all_cg_ops = vec![];
-    let mut bp_elem = None;
-    let mut op_elem = None;
-    for (is_digit, mut cg_ops) in &cg.chars().chunk_by(|c| c.is_ascii_digit()) {
-        if is_digit {
-            bp_elem = Some(cg_ops.join("").parse::<u32>()?);
-        } else if let Some(cg_op) = cg_ops.next() {
-            op_elem = Some(CigarOp::try_from(cg_op)?)
-        } else {
-            unreachable!()
-        }
-        if bp_elem.is_some() && op_elem.is_some() {
-            all_cg_ops.push((bp_elem.unwrap(), op_elem.unwrap()));
-            bp_elem = None;
-            op_elem = None;
-        }
-    }
-    Ok(all_cg_ops)
-}
-
-fn get_largest_overlapping_interval(
-    start: i32,
-    stop: i32,
-    misasm_itree: &RegionIntervalTrees,
-    name: &str,
-) -> Option<coitrees::IntervalNode<Option<String>, usize>> {
-    let misasms = misasm_itree.0.get(name)?;
-    let mut overlapping_itvs = vec![];
-    misasms.query(start, stop, |n| {
-        overlapping_itvs.push(n.clone());
-    });
-    overlapping_itvs
-        .into_iter()
-        .max_by(|a, b| a.len().cmp(&b.len()))
-}
-
-fn get_misassembly_from_itv(
-    itv: Option<IntervalNode<Option<String>, usize>>,
-) -> Option<Misassembly> {
-    itv.as_ref()
-        .and_then(|m| {
-            m.metadata()
-                .as_ref()
-                .and_then(|m| Misassembly::from_str(m).ok())
-        })
-        // Filter HETs that aren't serious misassemblies.
-        .filter(|m| *m != Misassembly::HET)
-}
+use crate::{
+    cigar::{get_cg_ops, CigarOp},
+    interval::{get_largest_overlapping_interval, Contig, ContigType, RegionIntervalTrees},
+    misassembly::{get_misassembly_from_itv, Misassembly},
+};
 
 pub fn get_concensus(
     paf_rows: &[PafRecord],

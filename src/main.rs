@@ -1,6 +1,4 @@
 use std::{
-    collections::HashMap,
-    fmt::Display,
     fs::File,
     io::{stdout, BufWriter, Write},
     path::PathBuf,
@@ -8,39 +6,15 @@ use std::{
 };
 
 use clap::Parser;
-use coitrees::{COITree, Interval, IntervalTree};
-use itertools::Itertools;
 use log::LevelFilter;
 use simple_logger::SimpleLogger;
 
-type RegionIntervals = HashMap<String, Vec<Interval<Option<String>>>>;
-
-struct RegionIntervalTrees(HashMap<String, COITree<Option<String>, usize>>);
-
-impl Display for RegionIntervalTrees {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (region, itvs) in self.0.iter() {
-            writeln!(
-                f,
-                "{region}: [{}]",
-                itvs.iter()
-                    .map(|itv| format!(
-                        "({}, {}, {:?})",
-                        itv.first,
-                        itv.last,
-                        itv.metadata.as_ref()
-                    ))
-                    .join(",")
-            )?;
-        }
-        Ok(())
-    }
-}
-
+mod cigar;
 mod cli;
 mod concensus;
+mod interval;
 mod io;
-
+mod misassembly;
 use cli::Args;
 
 fn main() -> eyre::Result<()> {
