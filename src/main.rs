@@ -1,4 +1,11 @@
-use std::{collections::HashMap, fmt::Display, str::FromStr};
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    fs::File,
+    io::{stdout, BufWriter, Write},
+    path::PathBuf,
+    str::FromStr,
+};
 
 use clap::Parser;
 use coitrees::{COITree, Interval, IntervalTree};
@@ -46,22 +53,41 @@ fn main() -> eyre::Result<()> {
     let ref_misasm_records = io::read_bed(Some(args.ref_misasm_bed), |rec| Some(rec.to_owned()))?;
     let qry_misasm_records = io::read_bed(Some(args.qry_misasm_bed), |rec| Some(rec.to_owned()))?;
 
-    let new_ctgs = concensus::get_concensus(
+    let mut new_ctgs = concensus::get_concensus(
         &paf_records,
         ref_roi_records,
         ref_misasm_records,
         qry_misasm_records,
     )?;
-    dbg!(new_ctgs);
-    // Write fasta.
-    //  // Update boundary coordinates of first and last contigs.
-    //  if let Some(ctg) = formatted_rows.get_mut(0) {
-    //     ctg.start = 0;
-    // }
-    // let last_idx = formatted_rows.len() - 1;
-    // if let Some(ctg) = formatted_rows.get_mut(last_idx) {
 
-    // }
-    // println!("{formatted_rows:?}")
+    let (ref_fai, ref_fa_gzi) = io::get_faidx(&args.ref_fa)?;
+    let (qry_fai, qry_fa_gzi) = io::get_faidx(&args.query_fa)?;
+
+    let output_fa: Box<dyn Write> =
+        if let Some(outfile) = args.output_fa.filter(|fpath| *fpath != PathBuf::from("-")) {
+            Box::new(BufWriter::new(File::create(outfile)?))
+        } else {
+            Box::new(BufWriter::new(stdout().lock()))
+        };
+
+    let output_bed = if let Some(output_bed) = args.output_bed {
+        Some(BufWriter::new(File::create(output_bed)?))
+    } else {
+        None
+    };
+
+    io::update_contig_boundaries(&mut new_ctgs, &ref_fai, &qry_fai)?;
+    io::write_consensus_fa(
+        new_ctgs,
+        &args.ref_fa,
+        &ref_fai,
+        ref_fa_gzi.as_ref(),
+        &args.query_fa,
+        &qry_fai,
+        qry_fa_gzi.as_ref(),
+        output_fa,
+        output_bed,
+    )?;
+
     Ok(())
 }

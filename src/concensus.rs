@@ -8,7 +8,7 @@ use paf::PafRecord;
 use crate::RegionIntervalTrees;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum ContigType {
+pub enum ContigType {
     Target,
     Query,
     Spacer,
@@ -16,10 +16,10 @@ enum ContigType {
 
 #[derive(Debug)]
 pub struct Contig {
-    name: String,
-    category: ContigType,
-    start: u32,
-    stop: u32,
+    pub name: String,
+    pub category: ContigType,
+    pub start: u32,
+    pub stop: u32,
 }
 
 impl From<ContigType> for Contig {
@@ -107,9 +107,7 @@ fn get_largest_overlapping_interval(
     misasm_itree: &RegionIntervalTrees,
     name: &str,
 ) -> Option<coitrees::IntervalNode<Option<String>, usize>> {
-    let Some(misasms) = misasm_itree.0.get(name) else {
-        return None;
-    };
+    let misasms = misasm_itree.0.get(name)?;
     let mut overlapping_itvs = vec![];
     misasms.query(start, stop, |n| {
         overlapping_itvs.push(n.clone());
@@ -162,7 +160,7 @@ pub fn get_concensus(
                 let target_start = paf_rec.target_start() + target_bp_accounted;
                 let target_stop = paf_rec.target_start() + target_bp_accounted + bp;
                 let query_start = paf_rec.query_start() + query_bp_accounted;
-                let query_stop = paf_rec.query_end() + query_bp_accounted + bp;
+                let query_stop = paf_rec.query_start() + query_bp_accounted + bp;
 
                 let overlap_cnt = grp_roi_intervals
                     .map(|itvs| itvs.query_count(target_start as i32, target_stop as i32))
@@ -198,12 +196,11 @@ pub fn get_concensus(
                         );
                         // Added sequence in target due to misassemblies associated with drop in read coverage.
                         // Remove sequence.
-                        if let Some(Ok(misassembly)) = largest_target_misassembly
-                            .and_then(|itv| itv.metadata.map(|s| Misassembly::from_str(&s)))
+                        if let Some(Ok(Misassembly::MISJOIN | Misassembly::GAP)) =
+                            largest_target_misassembly
+                                .and_then(|itv| itv.metadata.map(|s| Misassembly::from_str(&s)))
                         {
-                            if let Misassembly::MISJOIN | Misassembly::GAP = misassembly {
-                                new_ctgs.push(Contig::from(ContigType::Spacer));
-                            }
+                            new_ctgs.push(Contig::from(ContigType::Spacer));
                         }
                         _query_bp_deleted += bp;
                         target_bp_accounted += bp;
@@ -217,19 +214,17 @@ pub fn get_concensus(
                         );
                         // Deleted sequence in target as insertion in other assembly
                         // Add sequence from query.
-                        if let Some(Ok(misassembly)) = largest_target_misassembly
+                        if let Some(Ok(
+                            Misassembly::MISJOIN | Misassembly::GAP | Misassembly::ERROR,
+                        )) = largest_target_misassembly
                             .and_then(|itv| itv.metadata.map(|s| Misassembly::from_str(&s)))
                         {
-                            if let Misassembly::MISJOIN | Misassembly::GAP | Misassembly::ERROR =
-                                misassembly
-                            {
-                                new_ctgs.push(Contig {
-                                    name: paf_rec.query_name().to_owned(),
-                                    category: ContigType::Query,
-                                    start: query_start,
-                                    stop: query_stop,
-                                });
-                            }
+                            new_ctgs.push(Contig {
+                                name: paf_rec.query_name().to_owned(),
+                                category: ContigType::Query,
+                                start: query_start,
+                                stop: query_stop,
+                            });
                         }
                         _query_bp_inserted += bp;
                         query_bp_accounted += bp;
