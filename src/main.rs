@@ -52,7 +52,7 @@ fn main() -> eyre::Result<()> {
         ref_misasm_records,
         qry_misasm_records,
     )?;
-
+    dbg!(new_ctgs);
     // Write fasta.
     //  // Update boundary coordinates of first and last contigs.
     //  if let Some(ctg) = formatted_rows.get_mut(0) {
@@ -60,7 +60,7 @@ fn main() -> eyre::Result<()> {
     // }
     // let last_idx = formatted_rows.len() - 1;
     // if let Some(ctg) = formatted_rows.get_mut(last_idx) {
-        
+
     // }
     // println!("{formatted_rows:?}")
     Ok(())

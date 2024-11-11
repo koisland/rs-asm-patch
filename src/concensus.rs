@@ -33,6 +33,7 @@ impl From<ContigType> for Contig {
     }
 }
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum Misassembly {
     MISJOIN,
@@ -86,7 +87,7 @@ fn get_cg_ops(cg: &str) -> eyre::Result<Vec<(u32, CigarOp)>> {
     for (is_digit, mut cg_ops) in &cg.chars().chunk_by(|c| c.is_ascii_digit()) {
         if is_digit {
             bp_elem = Some(cg_ops.join("").parse::<u32>()?);
-        } else if let Some(cg_op) = cg_ops.nth(0) {
+        } else if let Some(cg_op) = cg_ops.next() {
             op_elem = Some(CigarOp::try_from(cg_op)?)
         } else {
             unreachable!()
@@ -125,7 +126,7 @@ fn get_misassembly_from_itv(
         .and_then(|m| {
             m.metadata()
                 .as_ref()
-                .and_then(|m| Misassembly::from_str(&m).ok())
+                .and_then(|m| Misassembly::from_str(m).ok())
         })
         // Filter HETs that aren't serious misassemblies.
         .filter(|m| *m != Misassembly::HET)
@@ -152,11 +153,11 @@ pub fn get_concensus(
             let Some(cg) = paf_rec.cg() else {
                 continue;
             };
-            let cg_ops = get_cg_ops(&cg)?;
+            let cg_ops = get_cg_ops(cg)?;
             let mut target_bp_accounted = 0;
             let mut query_bp_accounted = 0;
-            let mut query_bp_deleted = 0;
-            let mut query_bp_inserted = 0;
+            let mut _query_bp_deleted = 0;
+            let mut _query_bp_inserted = 0;
             for (bp, op) in cg_ops.into_iter() {
                 let target_start = paf_rec.target_start() + target_bp_accounted;
                 let target_stop = paf_rec.target_start() + target_bp_accounted + bp;
@@ -204,7 +205,7 @@ pub fn get_concensus(
                                 new_ctgs.push(Contig::from(ContigType::Spacer));
                             }
                         }
-                        query_bp_deleted += bp;
+                        _query_bp_deleted += bp;
                         target_bp_accounted += bp;
                     }
                     CigarOp::Insertion => {
@@ -230,7 +231,7 @@ pub fn get_concensus(
                                 });
                             }
                         }
-                        query_bp_inserted += bp;
+                        _query_bp_inserted += bp;
                         query_bp_accounted += bp;
                     }
                     _ => {
@@ -329,12 +330,12 @@ pub fn get_concensus(
 
         final_rows.entry(tname.to_owned()).or_insert(
             collapsed_rows
-            .into_iter()
-            .sorted_by(|a, b| a.0.cmp(&b.0))
-            .map(|c| c.1)
-            .collect_vec()
+                .into_iter()
+                .sorted_by(|a, b| a.0.cmp(&b.0))
+                .map(|c| c.1)
+                .collect_vec(),
         );
     }
-    
+
     Ok(final_rows)
 }
