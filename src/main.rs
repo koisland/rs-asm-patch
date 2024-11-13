@@ -27,7 +27,7 @@ fn debug_args() -> eyre::Result<Args> {
         qry_misasm_bed: PathBuf::from_str("data/mPanPan1_cen_misassemblies_query.bed")?,
         ref_roi_bed: Some(PathBuf::from_str("data/mPanPan1.matpat.ALR.500kbp.bed")?),
         output_fa: Some(PathBuf::from_str("/dev/null")?),
-        output_bed: None,
+        output_bed: Some(PathBuf::from_str("test.bed")?),
         log_level: String::from("Debug"),
     })
 }

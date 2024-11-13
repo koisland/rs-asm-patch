@@ -228,7 +228,11 @@ pub fn write_consensus_fa(
                 writeln!(
                     bed_fh,
                     "{}\t{}\t{}\t{:?}\t{}",
-                    ctg.name, ctg.start, ctg.stop, ctg.category, name
+                    ctg.name,
+                    ctg.start,
+                    ctg.stop,
+                    ctg.category.unwrap(),
+                    name
                 )?;
             }
         }
