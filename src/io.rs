@@ -70,95 +70,102 @@ pub fn read_paf(paf: impl AsRef<Path>) -> eyre::Result<Vec<PafRecord>> {
         .collect_vec())
 }
 
-pub fn get_faidx(
-    fa: &impl AsRef<Path>,
-) -> eyre::Result<(fasta::fai::Index, Option<bgzf::gzi::Index>)> {
-    // https://www.ginkgobioworks.com/2023/03/17/even-more-rapid-retrieval-from-very-large-files-with-rust/
-    let fa_path = fa.as_ref().canonicalize()?;
-    let is_bgzipped = fa_path.extension().and_then(|e| e.to_str()) == Some("gz");
-    let fai_fname = fa_path.with_extension(if is_bgzipped { "gz.fai" } else { "fa.fai" });
-    let fai = fasta::fai::read(fai_fname);
-    if is_bgzipped {
-        let index_reader = bgzf::indexed_reader::Builder::default()
-            .build_from_path(fa)
-            .with_context(|| format!("Failed to read gzi for {fa_path:?}"))?;
-        let gzi = index_reader.index().clone();
-
-        if let Ok(fai) = fai {
-            log::debug!("Existing fai index found for {fa_path:?}");
-            return Ok((fai, Some(gzi)));
-        }
-        log::debug!("No existing faidx for {fa_path:?}. Generating...");
-        let mut records = Vec::new();
-        let mut indexer = fasta::io::Indexer::new(index_reader);
-        while let Some(record) = indexer.index_record()? {
-            records.push(record);
-        }
-
-        Ok((fasta::fai::Index::from(records), Some(gzi)))
-    } else {
-        if let Ok(fai) = fai {
-            return Ok((fai, None));
-        }
-        log::debug!("No existing faidx for {fa_path:?}. Generating...");
-        Ok((fasta::index(fa)?, None))
-    }
-}
-
 pub enum FastaReader {
     Bgzip(fasta::io::Reader<IndexedReader<File>>),
     Standard(fasta::io::Reader<BufReader<File>>),
 }
 
-impl FastaReader {
-    pub fn fetch(
-        &mut self,
-        idx: &fasta::fai::Index,
-        ctg_name: &str,
-        start: u32,
-        stop: u32,
-    ) -> eyre::Result<fasta::Record> {
+pub struct FastaReaderHandle {
+    reader: FastaReader,
+    fai: fasta::fai::Index,
+}
+
+impl FastaReaderHandle {
+    pub fn new(infile: impl AsRef<Path>) -> eyre::Result<Self> {
+        let (fai, gzi) = Self::get_faidx(&infile)?;
+        let fh = Self::read_fa(&infile, gzi.as_ref())?;
+        Ok(Self { reader: fh, fai })
+    }
+
+    fn get_faidx(
+        fa: &impl AsRef<Path>,
+    ) -> eyre::Result<(fasta::fai::Index, Option<bgzf::gzi::Index>)> {
+        // https://www.ginkgobioworks.com/2023/03/17/even-more-rapid-retrieval-from-very-large-files-with-rust/
+        let fa_path = fa.as_ref().canonicalize()?;
+        let is_bgzipped = fa_path.extension().and_then(|e| e.to_str()) == Some("gz");
+        let fai_fname = fa_path.with_extension(if is_bgzipped { "gz.fai" } else { "fa.fai" });
+        let fai = fasta::fai::read(fai_fname);
+        if is_bgzipped {
+            let index_reader = bgzf::indexed_reader::Builder::default()
+                .build_from_path(fa)
+                .with_context(|| format!("Failed to read gzi for {fa_path:?}"))?;
+            let gzi = index_reader.index().clone();
+
+            if let Ok(fai) = fai {
+                log::debug!("Existing fai index found for {fa_path:?}");
+                return Ok((fai, Some(gzi)));
+            }
+            log::debug!("No existing faidx for {fa_path:?}. Generating...");
+            let mut records = Vec::new();
+            let mut indexer = fasta::io::Indexer::new(index_reader);
+            while let Some(record) = indexer.index_record()? {
+                records.push(record);
+            }
+
+            Ok((fasta::fai::Index::from(records), Some(gzi)))
+        } else {
+            if let Ok(fai) = fai {
+                return Ok((fai, None));
+            }
+            log::debug!("No existing faidx for {fa_path:?}. Generating...");
+            Ok((fasta::index(fa)?, None))
+        }
+    }
+
+    pub fn fetch(&mut self, ctg_name: &str, start: u32, stop: u32) -> eyre::Result<fasta::Record> {
         let start_pos = noodles::core::Position::new(start.clamp(1, u32::MAX) as usize).unwrap();
         let stop_pos = noodles::core::Position::new(stop.clamp(1, u32::MAX) as usize).unwrap();
         let region = noodles::core::Region::new(ctg_name, start_pos..=stop_pos);
-        match self {
-            FastaReader::Bgzip(reader) => Ok(reader.query(idx, &region)?),
-            FastaReader::Standard(reader) => Ok(reader.query(idx, &region)?),
+        match &mut self.reader {
+            FastaReader::Bgzip(reader) => Ok(reader.query(&self.fai, &region)?),
+            FastaReader::Standard(reader) => Ok(reader.query(&self.fai, &region)?),
         }
     }
-}
 
-pub fn read_fa(
-    fa: impl AsRef<Path>,
-    fa_gzi: Option<&bgzf::gzi::Index>,
-) -> eyre::Result<FastaReader> {
-    let fa_file = std::fs::File::open(fa);
-    if let Some(fa_gzi) = fa_gzi {
-        Ok(FastaReader::Bgzip(
-            fa_file
-                .map(|file| bgzf::IndexedReader::new(file, fa_gzi.to_vec()))
-                .map(fasta::io::Reader::new)?,
-        ))
-    } else {
-        Ok(FastaReader::Standard(
-            fa_file
-                .map(std::io::BufReader::new)
-                .map(fasta::io::Reader::new)?,
-        ))
+    fn read_fa(
+        fa: &impl AsRef<Path>,
+        fa_gzi: Option<&bgzf::gzi::Index>,
+    ) -> eyre::Result<FastaReader> {
+        let fa_file = std::fs::File::open(fa);
+        if let Some(fa_gzi) = fa_gzi {
+            Ok(FastaReader::Bgzip(
+                fa_file
+                    .map(|file| bgzf::IndexedReader::new(file, fa_gzi.to_vec()))
+                    .map(fasta::io::Reader::new)?,
+            ))
+        } else {
+            Ok(FastaReader::Standard(
+                fa_file
+                    .map(std::io::BufReader::new)
+                    .map(fasta::io::Reader::new)?,
+            ))
+        }
     }
 }
 
 pub fn update_contig_boundaries(
     ctgs: &mut HashMap<String, Vec<Contig>>,
-    ref_fai: &fasta::fai::Index,
-    qry_fai: &fasta::fai::Index,
+    ref_fh: &FastaReaderHandle,
+    qry_fh: &FastaReaderHandle,
 ) -> eyre::Result<()> {
-    let ref_lengths: HashMap<&str, u64> = ref_fai
+    let ref_lengths: HashMap<&str, u64> = ref_fh
+        .fai
         .as_ref()
         .iter()
         .flat_map(|rec| str::from_utf8(rec.name()).map(|name| (name, rec.length())))
         .collect();
-    let qry_lengths: HashMap<&str, u64> = qry_fai
+    let qry_lengths: HashMap<&str, u64> = qry_fh
+        .fai
         .as_ref()
         .iter()
         .flat_map(|rec| str::from_utf8(rec.name()).map(|name| (name, rec.length())))
@@ -190,29 +197,21 @@ pub fn update_contig_boundaries(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn write_consensus_fa(
     regions: HashMap<String, Vec<Contig>>,
-    ref_fa: impl AsRef<Path>,
-    ref_fai: &fasta::fai::Index,
-    ref_gzi: Option<&bgzf::gzi::Index>,
-    qry_fa: impl AsRef<Path>,
-    qry_fai: &fasta::fai::Index,
-    qry_gzi: Option<&bgzf::gzi::Index>,
+    ref_fh: &mut FastaReaderHandle,
+    qry_fh: &mut FastaReaderHandle,
     mut output_fa: Box<dyn Write>,
     mut output_bed: Option<BufWriter<File>>,
 ) -> eyre::Result<()> {
-    let mut ref_fh = read_fa(ref_fa, ref_gzi)?;
-    let mut qry_fh = read_fa(qry_fa, qry_gzi)?;
-
     for (name, ctgs) in regions {
         // Write header.
         writeln!(output_fa, ">{name}")?;
 
         for ctg in ctgs {
-            let (fa_fh, fa_idx) = match ctg.category {
-                Some(ContigType::Target) => (&mut ref_fh, ref_fai),
-                Some(ContigType::Query) => (&mut qry_fh, qry_fai),
+            let fa_fh = match ctg.category {
+                Some(ContigType::Target) => &mut *ref_fh,
+                Some(ContigType::Query) => &mut *qry_fh,
                 None => unreachable!(),
             };
 
@@ -221,7 +220,7 @@ pub fn write_consensus_fa(
                 continue;
             }
 
-            let seq = fa_fh.fetch(fa_idx, &ctg.name, ctg.start, ctg.stop)?;
+            let seq = fa_fh.fetch(&ctg.name, ctg.start, ctg.stop)?;
 
             output_fa.write_all(seq.sequence().as_ref())?;
 

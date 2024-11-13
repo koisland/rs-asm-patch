@@ -38,6 +38,8 @@ fn main() -> eyre::Result<()> {
     let log_level = LevelFilter::from_str(&args.log_level)?;
     SimpleLogger::new().with_level(log_level).init()?;
 
+    // TODO: Add option to replace with minimap2-rs
+    // TODO: Remove overlapping alignments.
     let paf_records = io::read_paf(args.paf)?;
     let ref_roi_records = io::read_bed(args.ref_roi_bed, |_| None)?;
     let ref_misasm_records = io::read_bed(Some(args.ref_misasm_bed), |rec| Some(rec.to_owned()))?;
@@ -50,8 +52,8 @@ fn main() -> eyre::Result<()> {
         qry_misasm_records,
     )?;
 
-    let (ref_fai, ref_fa_gzi) = io::get_faidx(&args.ref_fa)?;
-    let (qry_fai, qry_fa_gzi) = io::get_faidx(&args.query_fa)?;
+    let mut ref_fh = io::FastaReaderHandle::new(args.ref_fa)?;
+    let mut qry_fh = io::FastaReaderHandle::new(&args.query_fa)?;
 
     let output_fa: Box<dyn Write> =
         if let Some(outfile) = args.output_fa.filter(|fpath| *fpath != PathBuf::from("-")) {
@@ -66,18 +68,8 @@ fn main() -> eyre::Result<()> {
         None
     };
 
-    io::update_contig_boundaries(&mut new_ctgs, &ref_fai, &qry_fai)?;
-    io::write_consensus_fa(
-        new_ctgs,
-        &args.ref_fa,
-        &ref_fai,
-        ref_fa_gzi.as_ref(),
-        &args.query_fa,
-        &qry_fai,
-        qry_fa_gzi.as_ref(),
-        output_fa,
-        output_bed,
-    )?;
+    io::update_contig_boundaries(&mut new_ctgs, &ref_fh, &qry_fh)?;
+    io::write_consensus_fa(new_ctgs, &mut ref_fh, &mut qry_fh, output_fa, output_bed)?;
 
     Ok(())
 }
