@@ -1,13 +1,16 @@
 use std::{collections::HashMap, str::FromStr};
 
-use coitrees::{GenericInterval, IntervalTree};
+use coitrees::IntervalTree;
 use itertools::Itertools;
 use paf::PafRecord;
 
 use crate::{
     cigar::{get_cg_ops, CigarOp},
-    interval::{get_largest_overlapping_interval, Contig, ContigType, RegionIntervalTrees},
-    misassembly::{get_misassembly_from_itv, Misassembly},
+    interval::{
+        get_largest_overlapping_interval, get_overlapping_intervals, Contig, ContigType,
+        RegionIntervalTrees,
+    },
+    misassembly::Misassembly,
 };
 
 pub fn get_concensus(
@@ -24,9 +27,12 @@ pub fn get_concensus(
     {
         let grp_roi_intervals = ref_roi_itree.0.get(tname);
         let mut new_ctgs: Vec<Contig> = vec![];
+
+        // TODO: Rewrite to use intervaltree to view multiple adjacent intervals.
         let mut paf_recs = pafs
             .sorted_by(|a, b| a.target_start().cmp(&b.target_start()))
             .peekable();
+
         while let Some(paf_rec) = paf_recs.next() {
             let Some(cg) = paf_rec.cg() else {
                 continue;
@@ -58,9 +64,10 @@ pub fn get_concensus(
                     CigarOp::Match => {
                         new_ctgs.push(Contig {
                             name: paf_rec.target_name().to_string(),
-                            category: ContigType::Target,
+                            category: Some(ContigType::Target),
                             start: target_start,
                             stop: target_stop,
+                            full_len: paf_rec.target_len(),
                         });
 
                         target_bp_accounted += bp;
@@ -83,20 +90,16 @@ pub fn get_concensus(
                             log::debug!(
                                 "\tTarget name: {}, {:?}",
                                 paf_rec.target_name(),
-                                largest_target_misassembly.as_ref().map(|m| (
-                                    m.first,
-                                    m.last,
-                                    m.metadata()
-                                )),
+                                largest_target_misassembly,
                             );
                         }
                         // Added sequence in target due to misassemblies associated with drop in read coverage.
                         // Remove sequence.
                         if let Some(Ok(Misassembly::MISJOIN | Misassembly::GAP)) =
                             largest_target_misassembly
-                                .and_then(|itv| itv.metadata.map(|s| Misassembly::from_str(&s)))
+                                .and_then(|itv| itv.2.map(|s| Misassembly::from_str(&s)))
                         {
-                            new_ctgs.push(Contig::from(ContigType::Spacer));
+                            new_ctgs.push(Contig::from(None));
                         }
                         _query_bp_deleted += bp;
                         target_bp_accounted += bp;
@@ -117,11 +120,7 @@ pub fn get_concensus(
                             log::debug!(
                                 "\tTarget name: {}, {:?}",
                                 paf_rec.target_name(),
-                                largest_target_misassembly.as_ref().map(|m| (
-                                    m.first,
-                                    m.last,
-                                    m.metadata()
-                                )),
+                                largest_target_misassembly,
                             );
                         }
                         // Deleted sequence in target as insertion in other assembly
@@ -129,13 +128,14 @@ pub fn get_concensus(
                         if let Some(Ok(
                             Misassembly::MISJOIN | Misassembly::GAP | Misassembly::ERROR,
                         )) = largest_target_misassembly
-                            .and_then(|itv| itv.metadata.map(|s| Misassembly::from_str(&s)))
+                            .and_then(|itv| itv.2.map(|s| Misassembly::from_str(&s)))
                         {
                             new_ctgs.push(Contig {
                                 name: paf_rec.query_name().to_owned(),
-                                category: ContigType::Query,
+                                category: Some(ContigType::Query),
                                 start: query_start,
                                 stop: query_stop,
+                                full_len: paf_rec.query_len(),
                             });
                         }
                         _query_bp_inserted += bp;
@@ -152,24 +152,32 @@ pub fn get_concensus(
             let Some(next_paf_rec) = paf_recs.peek() else {
                 continue;
             };
+            // Case 1: Same qry ctg.
+            // qry:     --------
+            // alns:    ---  ---
+            // ref:     ---??---
+
+            // Case 2: Different qry ctgs
+            // qry:     ---
+            // qry:          ---
+            // alns:    ---  ---
+            // ref:     ---??---
             let gap_start = paf_rec.target_end();
             let gap_stop = next_paf_rec.target_start();
 
-            let ref_gap_misassembly = get_largest_overlapping_interval(
+            let ref_gap_misassembly = get_overlapping_intervals(
                 gap_start as i32,
                 gap_stop as i32,
                 &ref_misasm_itree,
                 paf_rec.target_name(),
             );
-            let qry_gap_misassembly = get_largest_overlapping_interval(
+            let qry_gap_misassembly = get_overlapping_intervals(
                 gap_start as i32,
                 gap_stop as i32,
                 &qry_misasm_itree,
                 paf_rec.query_name(),
             );
-            let ref_gap_mtype = get_misassembly_from_itv(ref_gap_misassembly);
-            let qry_gap_mtype = get_misassembly_from_itv(qry_gap_misassembly);
-            if ref_gap_mtype.is_some() || qry_gap_mtype.is_some() {
+            if ref_gap_misassembly.is_some() || qry_gap_misassembly.is_some() {
                 log::debug!(
                     "Misassemblies between alignments at ({}, {}):",
                     gap_start,
@@ -178,33 +186,52 @@ pub fn get_concensus(
                 log::debug!(
                     "\tTarget name: {}, {:?}",
                     paf_rec.target_name(),
-                    ref_gap_mtype,
+                    ref_gap_misassembly,
                 );
                 log::debug!(
                     "\tQuery name: {}, {:?}",
                     paf_rec.query_name(),
-                    qry_gap_mtype,
+                    qry_gap_misassembly,
                 );
             }
 
-            match (ref_gap_mtype, qry_gap_mtype) {
+            match (ref_gap_misassembly, qry_gap_misassembly) {
                 // Fix misassembly in target with query.
                 (Some(_), None) => {
+                    log::debug!("{:?}", paf_rec);
+                    log::debug!("{:?}", next_paf_rec);
+
+                    // Add contig up to misassembled region.
                     new_ctgs.push(Contig {
-                        name: paf_rec.query_name().to_owned(),
-                        category: ContigType::Query,
-                        start: paf_rec.query_end(),
-                        stop: next_paf_rec.query_start(),
+                        name: paf_rec.target_name().to_owned(),
+                        category: Some(ContigType::Target),
+                        start: paf_rec.target_start(),
+                        stop: paf_rec.target_end(),
+                        full_len: paf_rec.target_len(),
                     });
+
+                    // If same query contig, add.
+                    if paf_rec.query_name() == next_paf_rec.query_name() {
+                        new_ctgs.push(Contig {
+                            name: paf_rec.query_name().to_owned(),
+                            category: Some(ContigType::Query),
+                            start: paf_rec.query_end(),
+                            stop: next_paf_rec.query_start(),
+                            full_len: paf_rec.query_len(),
+                        });
+                    } else {
+                        // TODO: Align query regions with minimap2.
+                    }
                 }
                 // Misassembly in target and query or no information.
                 // Cannot repair. Keep original sequence.
                 (Some(_), Some(_)) | (None, None) | (None, Some(_)) => {
                     new_ctgs.push(Contig {
                         name: paf_rec.target_name().to_owned(),
-                        category: ContigType::Target,
+                        category: Some(ContigType::Target),
                         start: gap_start,
                         stop: gap_stop,
+                        full_len: paf_rec.target_len(),
                     });
                 }
             }
@@ -219,7 +246,8 @@ pub fn get_concensus(
             // Store id to sort later.
             rle_id += 1;
 
-            if *ctg_categ == ContigType::Spacer {
+            // Is spacer.
+            if ctg_categ.is_none() {
                 continue;
             }
 
@@ -233,12 +261,17 @@ pub fn get_concensus(
                     max_stop = ctg.stop
                 }
             }
+            if min_start > max_stop {
+                continue;
+            }
+
             // Create collapsed row.
             let new_ctg = Contig {
                 name: rows[0].name.clone(),
                 category: rows[0].category.clone(),
                 start: min_start,
                 stop: max_stop,
+                full_len: rows[0].full_len,
             };
             collapsed_rows.push((rle_id, new_ctg));
         }

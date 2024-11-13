@@ -17,8 +17,24 @@ mod io;
 mod misassembly;
 use cli::Args;
 
+#[allow(unused)]
+fn debug_args() -> eyre::Result<Args> {
+    Ok(Args {
+        paf: PathBuf::from_str("data/mPanPan1_trim.paf")?,
+        ref_fa: PathBuf::from_str("data/mPanPan1_merged_dedup_asm.fa.gz")?,
+        query_fa: PathBuf::from_str("data/mPanPan1_merged_dedup_asm_query.fa.gz")?,
+        ref_misasm_bed: PathBuf::from_str("data/mPanPan1_cen_misassemblies.bed")?,
+        qry_misasm_bed: PathBuf::from_str("data/mPanPan1_cen_misassemblies_query.bed")?,
+        ref_roi_bed: Some(PathBuf::from_str("data/mPanPan1.matpat.ALR.500kbp.bed")?),
+        output_fa: Some(PathBuf::from_str("/dev/null")?),
+        output_bed: None,
+        log_level: String::from("Debug"),
+    })
+}
+
 fn main() -> eyre::Result<()> {
     let args = Args::parse();
+    // let args = debug_args()?;
     let log_level = LevelFilter::from_str(&args.log_level)?;
     SimpleLogger::new().with_level(log_level).init()?;
 

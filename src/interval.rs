@@ -31,26 +31,41 @@ impl Display for RegionIntervalTrees {
 pub enum ContigType {
     Target,
     Query,
-    Spacer,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Contig {
     pub name: String,
-    pub category: ContigType,
+    pub category: Option<ContigType>,
     pub start: u32,
     pub stop: u32,
+    pub full_len: u32,
 }
 
-impl From<ContigType> for Contig {
-    fn from(category: ContigType) -> Self {
+impl From<Option<ContigType>> for Contig {
+    fn from(category: Option<ContigType>) -> Self {
         Contig {
             name: String::new(),
             category,
             start: 0,
             stop: 0,
+            full_len: 0,
         }
     }
+}
+
+pub fn get_overlapping_intervals(
+    start: i32,
+    stop: i32,
+    misasm_itree: &RegionIntervalTrees,
+    name: &str,
+) -> Option<Vec<(i32, i32, Option<String>)>> {
+    let misasms = misasm_itree.0.get(name)?;
+    let mut overlapping_itvs = vec![];
+    misasms.query(start, stop, |n| {
+        overlapping_itvs.push((n.first, n.last, n.metadata.clone()));
+    });
+    Some(overlapping_itvs)
 }
 
 pub fn get_largest_overlapping_interval(
@@ -58,13 +73,12 @@ pub fn get_largest_overlapping_interval(
     stop: i32,
     misasm_itree: &RegionIntervalTrees,
     name: &str,
-) -> Option<coitrees::IntervalNode<Option<String>, usize>> {
-    let misasms = misasm_itree.0.get(name)?;
-    let mut overlapping_itvs = vec![];
-    misasms.query(start, stop, |n| {
-        overlapping_itvs.push(n.clone());
-    });
-    overlapping_itvs
+) -> Option<(i32, i32, Option<String>)> {
+    get_overlapping_intervals(start, stop, misasm_itree, name)?
         .into_iter()
-        .max_by(|a, b| a.len().cmp(&b.len()))
+        .max_by(|a, b| {
+            let len_a = a.1 - a.0;
+            let len_b = b.1 - b.0;
+            len_a.cmp(&len_b)
+        })
 }

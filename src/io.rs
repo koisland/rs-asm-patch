@@ -171,7 +171,7 @@ pub fn update_contig_boundaries(
         }
         let last_idx = ctgs.len().saturating_sub(1);
         if let Some(ctg) = ctgs.get_mut(last_idx) {
-            let lengths = if ctg.category == ContigType::Target {
+            let lengths = if ctg.category == Some(ContigType::Target) {
                 &ref_lengths
             } else {
                 &qry_lengths
@@ -210,10 +210,10 @@ pub fn write_consensus_fa(
         writeln!(output_fa, ">{name}")?;
 
         for ctg in ctgs {
-            let (fa_fh, fa_idx) = match &ctg.category {
-                ContigType::Target => (&mut ref_fh, ref_fai),
-                ContigType::Query => (&mut qry_fh, qry_fai),
-                ContigType::Spacer => unreachable!(),
+            let (fa_fh, fa_idx) = match ctg.category {
+                Some(ContigType::Target) => (&mut ref_fh, ref_fai),
+                Some(ContigType::Query) => (&mut qry_fh, qry_fai),
+                None => unreachable!(),
             };
 
             // Skip invalid coordinates.
