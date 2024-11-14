@@ -30,6 +30,7 @@ pub fn get_concensus(
 
         // TODO: Rewrite to use intervaltree to view multiple adjacent intervals.
         let mut paf_recs = pafs
+            .filter(|rec| ref_roi_itree.0.contains_key(rec.target_name()))
             .sorted_by(|a, b| a.target_start().cmp(&b.target_start()))
             .peekable();
 
@@ -54,7 +55,7 @@ pub fn get_concensus(
 
                 // Skip alignments not within region of interest
                 // Only take intervals overlapping ROIs.
-                if grp_roi_intervals.is_some() && overlap_cnt == 0 {
+                if overlap_cnt == 0 {
                     target_bp_accounted += bp;
                     query_bp_accounted += bp;
                     continue;
@@ -83,14 +84,17 @@ pub fn get_concensus(
                         );
                         if largest_target_misassembly.is_some() {
                             log::debug!(
-                                "Deletion in query with respect to reference ({}, {}):",
-                                target_start,
-                                target_stop
+                                "Deletion ({bp}) in query with respect to reference ({target_start}, {target_stop}):",
                             );
                             log::debug!(
                                 "\tTarget name: {}, {:?}",
                                 paf_rec.target_name(),
-                                largest_target_misassembly,
+                                largest_target_misassembly.as_ref().map(|itv| (
+                                    itv.0,
+                                    itv.1,
+                                    itv.2.as_ref(),
+                                    itv.1 - itv.0
+                                )),
                             );
                         }
                         // Added sequence in target due to misassemblies associated with drop in read coverage.
@@ -113,14 +117,17 @@ pub fn get_concensus(
                         );
                         if largest_target_misassembly.is_some() {
                             log::debug!(
-                                "Insertion in query with respect to reference ({}, {}):",
-                                target_start,
-                                target_stop
+                                "Insertion ({bp}) in query with respect to reference ({target_start}, {target_stop}):",
                             );
                             log::debug!(
                                 "\tTarget name: {}, {:?}",
                                 paf_rec.target_name(),
-                                largest_target_misassembly,
+                                largest_target_misassembly.as_ref().map(|itv| (
+                                    itv.0,
+                                    itv.1,
+                                    itv.2.as_ref(),
+                                    itv.1 - itv.0
+                                )),
                             );
                         }
                         // Deleted sequence in target as insertion in other assembly
@@ -152,6 +159,7 @@ pub fn get_concensus(
             let Some(next_paf_rec) = paf_recs.peek() else {
                 continue;
             };
+
             // Case 1: Same qry ctg.
             // qry:     --------
             // alns:    ---  ---
@@ -165,6 +173,16 @@ pub fn get_concensus(
             let gap_start = paf_rec.target_end();
             let gap_stop = next_paf_rec.target_start();
 
+            if gap_start > gap_stop {
+                continue;
+            }
+            let overlap_cnt = grp_roi_intervals
+                .map(|itvs| itvs.query_count(gap_start as i32, gap_stop as i32))
+                .unwrap_or(0);
+
+            if overlap_cnt == 0 {
+                continue;
+            }
             let ref_gap_misassembly = get_overlapping_intervals(
                 gap_start as i32,
                 gap_stop as i32,
@@ -198,9 +216,6 @@ pub fn get_concensus(
             match (ref_gap_misassembly, qry_gap_misassembly) {
                 // Fix misassembly in target with query.
                 (Some(_), None) => {
-                    log::debug!("{:?}", paf_rec);
-                    log::debug!("{:?}", next_paf_rec);
-
                     // Add contig up to misassembled region.
                     new_ctgs.push(Contig {
                         name: paf_rec.target_name().to_owned(),
