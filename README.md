@@ -16,8 +16,8 @@ rb trim-paf mPanPan1.paf | sed 's/\\tid:Z://g' > mPanPan1_trim.paf
 
 Generate misassembly calls with nucflag.
 ```bash
-data/mPanPan1_cen_misassemblies.bed 
-data/mPanPan1_cen_misassemblies_query.bed 
+data/mPanPan1_cen_misassemblies.bed
+data/mPanPan1_cen_misassemblies_query.bed
 ```
 
 Run script.
@@ -30,3 +30,6 @@ cargo run -- \
 --qry-misasm-bed data/mPanPan1_cen_misassemblies_query.bed \
 --log-level Debug
 ```
+
+TODO
+* chr21_mat_hsa20

@@ -134,6 +134,7 @@ pub fn get_concensus(
             .sorted_by(|a, b| a.target_start().cmp(&b.target_start()))
             .peekable();
 
+        let mut tstart = 0;
         while let Some(paf_rec) = paf_recs.next() {
             let liftover_itree = Liftover::new(paf_rec, grp_roi_intervals)?;
 
@@ -147,7 +148,6 @@ pub fn get_concensus(
                 continue;
             };
 
-            let mut tstart = 0;
             for (mstart, mstop, mtype) in misassemblies
                 .into_iter()
                 .sorted_by(|a, b| a.0.cmp(&b.0))
