@@ -1,7 +1,7 @@
 use eyre::bail;
 use itertools::Itertools;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CigarOp {
     Match,
     Mismatch,

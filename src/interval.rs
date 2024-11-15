@@ -36,22 +36,10 @@ pub enum ContigType {
 #[derive(Debug, Clone)]
 pub struct Contig {
     pub name: String,
-    pub category: Option<ContigType>,
+    pub category: ContigType,
     pub start: u32,
     pub stop: u32,
     pub full_len: u32,
-}
-
-impl From<Option<ContigType>> for Contig {
-    fn from(category: Option<ContigType>) -> Self {
-        Contig {
-            name: String::new(),
-            category,
-            start: 0,
-            stop: 0,
-            full_len: 0,
-        }
-    }
 }
 
 pub fn get_overlapping_intervals(
@@ -66,19 +54,4 @@ pub fn get_overlapping_intervals(
         overlapping_itvs.push((n.first, n.last, n.metadata.clone()));
     });
     Some(overlapping_itvs)
-}
-
-pub fn get_largest_overlapping_interval(
-    start: i32,
-    stop: i32,
-    misasm_itree: &RegionIntervalTrees,
-    name: &str,
-) -> Option<(i32, i32, Option<String>)> {
-    get_overlapping_intervals(start, stop, misasm_itree, name)?
-        .into_iter()
-        .max_by(|a, b| {
-            let len_a = a.1 - a.0;
-            let len_b = b.1 - b.0;
-            len_a.cmp(&len_b)
-        })
 }

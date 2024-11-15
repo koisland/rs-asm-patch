@@ -1,17 +1,116 @@
-use std::{collections::HashMap, str::FromStr};
+use std::collections::HashMap;
 
-use coitrees::IntervalTree;
+use coitrees::{COITree, Interval, IntervalTree};
+use eyre::bail;
 use itertools::Itertools;
 use paf::PafRecord;
 
 use crate::{
     cigar::{get_cg_ops, CigarOp},
-    interval::{
-        get_largest_overlapping_interval, get_overlapping_intervals, Contig, ContigType,
-        RegionIntervalTrees,
-    },
-    misassembly::Misassembly,
+    interval::{get_overlapping_intervals, Contig, ContigType, RegionIntervalTrees},
 };
+
+struct Liftover {
+    intervals: coitrees::BasicCOITree<(i32, i32, CigarOp), usize>,
+}
+
+impl Liftover {
+    fn new(
+        paf_rec: &PafRecord,
+        filter_intervals: Option<&coitrees::BasicCOITree<Option<String>, usize>>,
+    ) -> eyre::Result<Self> {
+        let Some(cg) = paf_rec.cg() else {
+            bail!("No cigar in {paf_rec:?}.")
+        };
+        let cg_ops = get_cg_ops(cg)?;
+        let mut target_bp_accounted = 0;
+        let mut query_bp_accounted = 0;
+        let mut _query_bp_deleted = 0;
+        let mut _query_bp_inserted = 0;
+
+        let mut liftover_intervals = vec![];
+
+        for (bp, op) in cg_ops.into_iter() {
+            let target_start = paf_rec.target_start() + target_bp_accounted;
+            let target_stop = paf_rec.target_start() + target_bp_accounted + bp;
+            let query_start = paf_rec.query_start() + query_bp_accounted;
+            let query_stop = paf_rec.query_start() + query_bp_accounted + bp;
+
+            let overlap_cnt = filter_intervals
+                .map(|itvs| itvs.query_count(target_start as i32, target_stop as i32))
+                .unwrap_or(0);
+
+            // Skip alignments not within region of interest
+            // Only take intervals overlapping ROIs.
+            if overlap_cnt == 0 {
+                target_bp_accounted += bp;
+                query_bp_accounted += bp;
+                continue;
+            }
+
+            match op {
+                CigarOp::Match | CigarOp::Mismatch => {
+                    target_bp_accounted += bp;
+                    query_bp_accounted += bp;
+                }
+                // Deletion in query with respect to reference
+                CigarOp::Deletion => {
+                    _query_bp_deleted += bp;
+                    target_bp_accounted += bp;
+                }
+                CigarOp::Insertion => {
+                    _query_bp_inserted += bp;
+                    query_bp_accounted += bp;
+                }
+            }
+
+            let interval = Interval::new(
+                target_start as i32,
+                target_stop as i32,
+                (query_start as i32, query_stop as i32, op),
+            );
+            liftover_intervals.push(interval);
+        }
+
+        Ok(Liftover {
+            intervals: COITree::new(&liftover_intervals),
+        })
+    }
+
+    fn query(&self, start: i32, stop: i32) -> Option<(i32, i32, f32)> {
+        let mut qry_coords = (i32::MAX, 0);
+        let mut matches = 0;
+        let mut mismatches = 0;
+        let mut indels = 0;
+        self.intervals.query(start, stop, |itv| {
+            let start_diff = itv.first - start;
+            let end_diff = itv.last - stop;
+            let (qry_start, qry_stop, cg_op) = &itv.metadata;
+            let bp = qry_stop - qry_start;
+            let qry_start = *qry_start - start_diff;
+            let qry_stop = *qry_stop - end_diff;
+            match cg_op {
+                CigarOp::Match => matches += bp,
+                CigarOp::Mismatch => mismatches += bp,
+                CigarOp::Insertion | CigarOp::Deletion => indels += bp,
+            }
+            if qry_start.is_negative() || qry_stop.is_negative() {
+                return;
+            }
+            qry_coords.0 = std::cmp::min(qry_start, qry_coords.0);
+            qry_coords.1 = std::cmp::max(qry_stop, qry_coords.1);
+        });
+        if qry_coords == (i32::MAX, 0) {
+            return None;
+        }
+        // blast ident
+        // https://lh3.github.io/2018/11/25/on-the-definition-of-sequence-identity
+        let aln_len = matches + mismatches + indels;
+        let mismatches_gaps = mismatches + indels;
+        let identity = (aln_len - mismatches_gaps) as f32 / aln_len as f32;
+        Some((qry_coords.0, qry_coords.1, identity))
+    }
+}
 
 pub fn get_concensus(
     paf_rows: &[PafRecord],
@@ -25,7 +124,8 @@ pub fn get_concensus(
         .sorted_by(|a, b| a.target_name().cmp(b.target_name()))
         .chunk_by(|c| c.target_name())
     {
-        let grp_roi_intervals = ref_roi_itree.0.get(tname);
+        let grp_roi_intervals: Option<&coitrees::BasicCOITree<Option<String>, usize>> =
+            ref_roi_itree.0.get(tname);
         let mut new_ctgs: Vec<Contig> = vec![];
 
         // TODO: Rewrite to use intervaltree to view multiple adjacent intervals.
@@ -35,129 +135,75 @@ pub fn get_concensus(
             .peekable();
 
         while let Some(paf_rec) = paf_recs.next() {
-            let Some(cg) = paf_rec.cg() else {
+            let liftover_itree = Liftover::new(paf_rec, grp_roi_intervals)?;
+
+            // Get misassemblies
+            let Some(misassemblies) = get_overlapping_intervals(
+                paf_rec.target_start() as i32,
+                paf_rec.target_end() as i32,
+                &ref_misasm_itree,
+                paf_rec.target_name(),
+            ) else {
                 continue;
             };
-            let cg_ops = get_cg_ops(cg)?;
-            let mut target_bp_accounted = 0;
-            let mut query_bp_accounted = 0;
-            let mut _query_bp_deleted = 0;
-            let mut _query_bp_inserted = 0;
-            for (bp, op) in cg_ops.into_iter() {
-                let target_start = paf_rec.target_start() + target_bp_accounted;
-                let target_stop = paf_rec.target_start() + target_bp_accounted + bp;
-                let query_start = paf_rec.query_start() + query_bp_accounted;
-                let query_stop = paf_rec.query_start() + query_bp_accounted + bp;
 
+            let mut tstart = 0;
+            for (mstart, mstop, mtype) in misassemblies
+                .into_iter()
+                .sorted_by(|a, b| a.0.cmp(&b.0))
+                .filter(|m| m.2.as_deref() != Some("HET"))
+            {
                 let overlap_cnt = grp_roi_intervals
-                    .map(|itvs| itvs.query_count(target_start as i32, target_stop as i32))
+                    .map(|itvs| itvs.query_count(mstart, mstop))
                     .unwrap_or(0);
 
-                // Skip alignments not within region of interest
-                // Only take intervals overlapping ROIs.
                 if overlap_cnt == 0 {
-                    target_bp_accounted += bp;
-                    query_bp_accounted += bp;
                     continue;
                 }
 
-                match op {
-                    CigarOp::Match => {
-                        new_ctgs.push(Contig {
-                            name: paf_rec.target_name().to_string(),
-                            category: Some(ContigType::Target),
-                            start: target_start,
-                            stop: target_stop,
-                            full_len: paf_rec.target_len(),
-                        });
-
-                        target_bp_accounted += bp;
-                        query_bp_accounted += bp;
-                    }
-                    // Deletion in query with respect to reference
-                    CigarOp::Deletion => {
-                        let largest_target_misassembly = get_largest_overlapping_interval(
-                            target_start as i32,
-                            target_stop as i32,
-                            &ref_misasm_itree,
-                            paf_rec.target_name(),
-                        );
-                        if largest_target_misassembly.is_some() {
-                            log::debug!(
-                                "Deletion ({bp}) in query with respect to reference ({target_start}, {target_stop}):",
-                            );
-                            log::debug!(
-                                "\tTarget name: {}, {:?}",
-                                paf_rec.target_name(),
-                                largest_target_misassembly.as_ref().map(|itv| (
-                                    itv.0,
-                                    itv.1,
-                                    itv.2.as_ref(),
-                                    itv.1 - itv.0
-                                )),
-                            );
-                        }
-                        // Added sequence in target due to misassemblies associated with drop in read coverage.
-                        // Remove sequence.
-                        if let Some(Ok(Misassembly::MISJOIN | Misassembly::GAP)) =
-                            largest_target_misassembly
-                                .and_then(|itv| itv.2.map(|s| Misassembly::from_str(&s)))
-                        {
-                            new_ctgs.push(Contig::from(None));
-                        }
-                        _query_bp_deleted += bp;
-                        target_bp_accounted += bp;
-                    }
-                    CigarOp::Insertion => {
-                        let largest_target_misassembly = get_largest_overlapping_interval(
-                            target_start as i32,
-                            target_stop as i32,
-                            &ref_misasm_itree,
-                            paf_rec.target_name(),
-                        );
-                        if largest_target_misassembly.is_some() {
-                            log::debug!(
-                                "Insertion ({bp}) in query with respect to reference ({target_start}, {target_stop}):",
-                            );
-                            log::debug!(
-                                "\tTarget name: {}, {:?}",
-                                paf_rec.target_name(),
-                                largest_target_misassembly.as_ref().map(|itv| (
-                                    itv.0,
-                                    itv.1,
-                                    itv.2.as_ref(),
-                                    itv.1 - itv.0
-                                )),
-                            );
-                        }
-                        // Deleted sequence in target as insertion in other assembly
-                        // Add sequence from query.
-                        if let Some(Ok(
-                            Misassembly::MISJOIN | Misassembly::GAP | Misassembly::ERROR,
-                        )) = largest_target_misassembly
-                            .and_then(|itv| itv.2.map(|s| Misassembly::from_str(&s)))
-                        {
-                            new_ctgs.push(Contig {
-                                name: paf_rec.query_name().to_owned(),
-                                category: Some(ContigType::Query),
-                                start: query_start,
-                                stop: query_stop,
-                                full_len: paf_rec.query_len(),
-                            });
-                        }
-                        _query_bp_inserted += bp;
-                        query_bp_accounted += bp;
-                    }
-                    _ => {
-                        target_bp_accounted += bp;
-                        query_bp_accounted += bp;
-                    }
+                let correct_coords = (tstart, mstart.saturating_sub(1).clamp(0, i32::MAX));
+                tstart = mstop;
+                if correct_coords.0 == correct_coords.1 {
+                    continue;
                 }
+                new_ctgs.push(Contig {
+                    name: tname.to_owned(),
+                    category: ContigType::Target,
+                    start: correct_coords.0.try_into()?,
+                    stop: correct_coords.1.try_into()?,
+                    full_len: paf_rec.target_len(),
+                });
+                let Some((qry_start, qry_stop, qry_ident)) = liftover_itree.query(mstart, mstop)
+                else {
+                    continue;
+                };
+                let qname = paf_rec.query_name().to_owned();
+                log::debug!("Replacing ({mstart},{mstop},{mtype:?}) in {tname} with {} ({qry_start},{qry_stop}) with identity {qry_ident}.", &qname);
+
+                // TODO: use identity?
+                new_ctgs.push(Contig {
+                    name: qname,
+                    category: ContigType::Query,
+                    start: qry_start.try_into()?,
+                    stop: qry_stop.try_into()?,
+                    full_len: paf_rec.query_len(),
+                });
             }
 
             // Check gaps in alignment.
-            let Some(next_paf_rec) = paf_recs.peek() else {
-                continue;
+            let Some(next_paf_rec) = paf_recs
+                .peek()
+                .filter(|rec| rec.query_name() == paf_rec.query_name())
+            else {
+                // Add remainder of reference contig.
+                new_ctgs.push(Contig {
+                    name: paf_rec.target_name().to_owned(),
+                    category: ContigType::Target,
+                    start: tstart.try_into()?,
+                    stop: paf_rec.target_len(),
+                    full_len: paf_rec.target_len(),
+                });
+                break;
             };
 
             // Case 1: Same qry ctg.
@@ -173,9 +219,6 @@ pub fn get_concensus(
             let gap_start = paf_rec.target_end();
             let gap_stop = next_paf_rec.target_start();
 
-            if gap_start > gap_stop {
-                continue;
-            }
             let overlap_cnt = grp_roi_intervals
                 .map(|itvs| itvs.query_count(gap_start as i32, gap_stop as i32))
                 .unwrap_or(0);
@@ -216,34 +259,26 @@ pub fn get_concensus(
             match (ref_gap_misassembly, qry_gap_misassembly) {
                 // Fix misassembly in target with query.
                 (Some(_), None) => {
-                    // Add contig up to misassembled region.
+                    let qry_start = paf_rec.query_end();
+                    let qry_stop = next_paf_rec.query_start();
+                    log::debug!(
+                        "Attempting to fix gap in alignment with {} sequence ({qry_start},{qry_stop}).",
+                        paf_rec.query_name()
+                    );
                     new_ctgs.push(Contig {
-                        name: paf_rec.target_name().to_owned(),
-                        category: Some(ContigType::Target),
-                        start: paf_rec.target_start(),
-                        stop: paf_rec.target_end(),
-                        full_len: paf_rec.target_len(),
+                        name: paf_rec.query_name().to_owned(),
+                        category: ContigType::Query,
+                        start: qry_start,
+                        stop: qry_stop,
+                        full_len: paf_rec.query_len(),
                     });
-
-                    // If same query contig, add.
-                    if paf_rec.query_name() == next_paf_rec.query_name() {
-                        new_ctgs.push(Contig {
-                            name: paf_rec.query_name().to_owned(),
-                            category: Some(ContigType::Query),
-                            start: paf_rec.query_end(),
-                            stop: next_paf_rec.query_start(),
-                            full_len: paf_rec.query_len(),
-                        });
-                    } else {
-                        // TODO: Align query regions with minimap2.
-                    }
                 }
                 // Misassembly in target and query or no information.
                 // Cannot repair. Keep original sequence.
                 (Some(_), Some(_)) | (None, None) | (None, Some(_)) => {
                     new_ctgs.push(Contig {
                         name: paf_rec.target_name().to_owned(),
-                        category: Some(ContigType::Target),
+                        category: ContigType::Target,
                         start: gap_start,
                         stop: gap_stop,
                         full_len: paf_rec.target_len(),
@@ -255,16 +290,9 @@ pub fn get_concensus(
         let mut rle_id = 0;
         let mut collapsed_rows: Vec<(usize, Contig)> = vec![];
         // Group by ctg_name and ctg_type and find min start and max stop coordinate.
-        for ((_ctg_name, ctg_categ), ctg_grp_rows) in
-            &new_ctgs.iter().chunk_by(|ctg| (&ctg.name, &ctg.category))
-        {
+        for (_, ctg_grp_rows) in &new_ctgs.iter().chunk_by(|ctg| (&ctg.name, &ctg.category)) {
             // Store id to sort later.
             rle_id += 1;
-
-            // Is spacer.
-            if ctg_categ.is_none() {
-                continue;
-            }
 
             let rows: Vec<&Contig> = ctg_grp_rows.collect_vec();
             let (mut min_start, mut max_stop) = (u32::MAX, 0);
