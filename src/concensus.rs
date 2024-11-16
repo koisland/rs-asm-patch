@@ -125,30 +125,30 @@ pub fn get_concensus(
         .chunk_by(|c| c.target_name())
     {
         let grp_roi_intervals: Option<&coitrees::BasicCOITree<Option<String>, usize>> =
-            ref_roi_itree.0.get(tname);
+            ref_roi_itree.get(tname);
         let mut new_ctgs: Vec<Contig> = vec![];
 
         // TODO: Rewrite to use intervaltree to view multiple adjacent intervals.
         let mut paf_recs = pafs
-            .filter(|rec| ref_roi_itree.0.contains_key(rec.target_name()))
+            .filter(|rec| ref_roi_itree.contains_key(rec.target_name()))
             .sorted_by(|a, b| a.target_start().cmp(&b.target_start()))
             .peekable();
 
         let mut tstart = 0;
         while let Some(paf_rec) = paf_recs.next() {
             let liftover_itree = Liftover::new(paf_rec, grp_roi_intervals)?;
-
             // Get misassemblies
-            let Some(misassemblies) = get_overlapping_intervals(
-                paf_rec.target_start() as i32,
-                paf_rec.target_end() as i32,
-                &ref_misasm_itree,
-                paf_rec.target_name(),
-            ) else {
+            let Some(ref_misassemblies) = ref_misasm_itree.get(paf_rec.target_name()) else {
                 continue;
             };
+            let ref_rgn_misassemblies = get_overlapping_intervals(
+                paf_rec.target_start() as i32,
+                paf_rec.target_end() as i32,
+                ref_misassemblies,
+            );
+            let qname = paf_rec.query_name().to_owned();
 
-            for (mstart, mstop, mtype) in misassemblies
+            for (mstart, mstop, mtype) in ref_rgn_misassemblies
                 .into_iter()
                 .sorted_by(|a, b| a.0.cmp(&b.0))
                 .filter(|m| m.2.as_deref() != Some("HET"))
@@ -163,6 +163,7 @@ pub fn get_concensus(
 
                 let correct_coords = (tstart, mstart.saturating_sub(1).clamp(0, i32::MAX));
                 tstart = mstop;
+                // Ignore if null interval.
                 if correct_coords.0 == correct_coords.1 {
                     continue;
                 }
@@ -177,12 +178,11 @@ pub fn get_concensus(
                 else {
                     continue;
                 };
-                let qname = paf_rec.query_name().to_owned();
-                log::debug!("Replacing ({mstart},{mstop},{mtype:?}) in {tname} with {} ({qry_start},{qry_stop}) with identity {qry_ident}.", &qname);
+                log::debug!("Replacing {tname}:{mstart}-{mstop} ({mtype:?}) with {}:{qry_start}-{qry_stop} with identity {qry_ident}.", &qname);
 
                 // TODO: use identity?
                 new_ctgs.push(Contig {
-                    name: qname,
+                    name: qname.clone(),
                     category: ContigType::Query,
                     start: qry_start.try_into()?,
                     stop: qry_stop.try_into()?,
@@ -226,47 +226,37 @@ pub fn get_concensus(
             if overlap_cnt == 0 {
                 continue;
             }
-            let ref_gap_misassembly = get_overlapping_intervals(
-                gap_start as i32,
-                gap_stop as i32,
-                &ref_misasm_itree,
-                paf_rec.target_name(),
-            );
-            let qry_gap_misassembly = get_overlapping_intervals(
-                gap_start as i32,
-                gap_stop as i32,
-                &qry_misasm_itree,
-                paf_rec.query_name(),
-            );
-            if ref_gap_misassembly.is_some() || qry_gap_misassembly.is_some() {
+            let ref_aln_gap_misassemblies =
+                get_overlapping_intervals(gap_start as i32, gap_stop as i32, ref_misassemblies);
+            let qry_aln_gap_miassemblies = qry_misasm_itree
+                .get(paf_rec.query_name())
+                .map_or_else(Vec::new, |itvs| {
+                    get_overlapping_intervals(gap_start as i32, gap_stop as i32, itvs)
+                });
+
+            let ref_aln_gap_misassembled = !ref_aln_gap_misassemblies.is_empty();
+            let qry_aln_gap_misassembled = !qry_aln_gap_miassemblies.is_empty();
+            if ref_aln_gap_misassembled || qry_aln_gap_misassembled {
                 log::debug!(
-                    "Misassemblies between alignments at ({}, {}):",
-                    gap_start,
-                    gap_stop
+                    "Misassemblies between {tname}:{gap_start}-{gap_stop} with no alignment with {}",
+                    &qname
                 );
-                log::debug!(
-                    "\tTarget name: {}, {:?}",
-                    paf_rec.target_name(),
-                    ref_gap_misassembly,
-                );
-                log::debug!(
-                    "\tQuery name: {}, {:?}",
-                    paf_rec.query_name(),
-                    qry_gap_misassembly,
-                );
+                log::debug!("\tTarget: {:?}", ref_aln_gap_misassemblies,);
+                log::debug!("\tQuery: {:?}", qry_aln_gap_miassemblies,);
             }
 
-            match (ref_gap_misassembly, qry_gap_misassembly) {
+            match (ref_aln_gap_misassembled, qry_aln_gap_misassembled) {
                 // Fix misassembly in target with query.
-                (Some(_), None) => {
+                (true, false) => {
                     let qry_start = paf_rec.query_end();
                     let qry_stop = next_paf_rec.query_start();
+
                     log::debug!(
-                        "Attempting to fix gap in alignment with {} sequence ({qry_start},{qry_stop}).",
-                        paf_rec.query_name()
+                        "Replacing {tname}:{gap_start}-{gap_stop} with {}:{qry_start}-{qry_stop}.",
+                        &qname
                     );
                     new_ctgs.push(Contig {
-                        name: paf_rec.query_name().to_owned(),
+                        name: qname.clone(),
                         category: ContigType::Query,
                         start: qry_start,
                         stop: qry_stop,
@@ -275,9 +265,9 @@ pub fn get_concensus(
                 }
                 // Misassembly in target and query or no information.
                 // Cannot repair. Keep original sequence.
-                (Some(_), Some(_)) | (None, None) | (None, Some(_)) => {
+                (_, _) => {
                     new_ctgs.push(Contig {
-                        name: paf_rec.target_name().to_owned(),
+                        name: tname.to_owned(),
                         category: ContigType::Target,
                         start: gap_start,
                         stop: gap_stop,

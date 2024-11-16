@@ -22,7 +22,7 @@ pub fn read_bed(
     metadata_fn: impl Fn(&str) -> Option<String>,
 ) -> eyre::Result<RegionIntervalTrees> {
     let mut intervals: RegionIntervals = HashMap::new();
-    let mut trees: RegionIntervalTrees = RegionIntervalTrees(HashMap::new());
+    let mut trees: RegionIntervalTrees = HashMap::new();
 
     let Some(bed) = bed else {
         return Ok(trees);
@@ -64,7 +64,7 @@ pub fn read_bed(
             });
     }
     for (roi, intervals) in intervals.into_iter() {
-        trees.0.entry(roi).or_insert(COITree::new(&intervals));
+        trees.entry(roi).or_insert(COITree::new(&intervals));
     }
     Ok(trees)
 }

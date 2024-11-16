@@ -1,31 +1,8 @@
-use std::{collections::HashMap, fmt::Display};
-
 use coitrees::{COITree, Interval, IntervalTree};
-use itertools::Itertools;
+use std::collections::HashMap;
 
 pub type RegionIntervals = HashMap<String, Vec<Interval<Option<String>>>>;
-
-pub struct RegionIntervalTrees(pub HashMap<String, COITree<Option<String>, usize>>);
-
-impl Display for RegionIntervalTrees {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (region, itvs) in self.0.iter() {
-            writeln!(
-                f,
-                "{region}: [{}]",
-                itvs.iter()
-                    .map(|itv| format!(
-                        "({}, {}, {:?})",
-                        itv.first,
-                        itv.last,
-                        itv.metadata.as_ref()
-                    ))
-                    .join(",")
-            )?;
-        }
-        Ok(())
-    }
-}
+pub type RegionIntervalTrees = HashMap<String, COITree<Option<String>, usize>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContigType {
@@ -45,13 +22,11 @@ pub struct Contig {
 pub fn get_overlapping_intervals(
     start: i32,
     stop: i32,
-    misasm_itree: &RegionIntervalTrees,
-    name: &str,
-) -> Option<Vec<(i32, i32, Option<String>)>> {
-    let misasms = misasm_itree.0.get(name)?;
+    itree: &coitrees::BasicCOITree<Option<String>, usize>,
+) -> Vec<(i32, i32, Option<String>)> {
     let mut overlapping_itvs = vec![];
-    misasms.query(start, stop, |n| {
-        overlapping_itvs.push((n.first, n.last, n.metadata.clone()));
+    itree.query(start, stop, |n| {
+        overlapping_itvs.push((n.first, n.last, n.metadata.to_owned()));
     });
-    Some(overlapping_itvs)
+    overlapping_itvs
 }
