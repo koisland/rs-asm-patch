@@ -15,6 +15,7 @@ mod cli;
 mod concensus;
 mod interval;
 mod io;
+mod liftover;
 use cli::Args;
 
 #[allow(unused)]
