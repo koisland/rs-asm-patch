@@ -20,7 +20,11 @@ data/mPanPan1_cen_misassemblies.bed
 data/mPanPan1_cen_misassemblies_query.bed
 ```
 
-Run script.
+### Test
+Run script on mPanPan1.
+* Verkko reference
+* hifiasm query
+
 ```bash
 cargo run -- \
 -i data/mPanPan1_trim.paf \
@@ -30,7 +34,7 @@ cargo run -- \
 --qry-misasm-bed <(grep -v "HET" data/mPanPan1_cen_misassemblies_query.bed) \
 --log-level Debug \
 -b test.bed \
--o /dev/null
+-o test.fa 2> test.log
 ```
 
 TODO

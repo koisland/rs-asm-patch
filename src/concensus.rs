@@ -7,17 +7,17 @@ use paf::PafRecord;
 
 use crate::{
     cigar::{get_cg_ops, CigarOp},
-    interval::{get_overlapping_intervals, Contig, ContigType, RegionIntervalTrees},
+    interval::{get_overlapping_intervals, in_roi, Contig, ContigType, RegionIntervalTrees},
 };
 
 struct Liftover {
-    intervals: coitrees::BasicCOITree<(i32, i32, CigarOp), usize>,
+    intervals: COITree<(i32, i32, CigarOp), usize>,
 }
 
 impl Liftover {
     fn new(
         paf_rec: &PafRecord,
-        filter_intervals: Option<&coitrees::BasicCOITree<Option<String>, usize>>,
+        filter_intervals: Option<&COITree<Option<String>, usize>>,
     ) -> eyre::Result<Self> {
         let Some(cg) = paf_rec.cg() else {
             bail!("No cigar in {paf_rec:?}.")
@@ -36,13 +36,10 @@ impl Liftover {
             let query_start = paf_rec.query_start() + query_bp_accounted;
             let query_stop = paf_rec.query_start() + query_bp_accounted + bp;
 
-            let overlap_cnt = filter_intervals
-                .map(|itvs| itvs.query_count(target_start as i32, target_stop as i32))
-                .unwrap_or(0);
-
             // Skip alignments not within region of interest
             // Only take intervals overlapping ROIs.
-            if overlap_cnt == 0 {
+            let is_roi = in_roi(target_start as i32, target_stop as i32, filter_intervals);
+            if !is_roi {
                 target_bp_accounted += bp;
                 query_bp_accounted += bp;
                 continue;
@@ -114,7 +111,7 @@ impl Liftover {
 
 pub fn get_concensus(
     paf_rows: &[PafRecord],
-    ref_roi_itree: RegionIntervalTrees,
+    ref_roi_itree: Option<RegionIntervalTrees>,
     ref_misasm_itree: RegionIntervalTrees,
     qry_misasm_itree: RegionIntervalTrees,
 ) -> eyre::Result<HashMap<String, Vec<Contig>>> {
@@ -125,12 +122,21 @@ pub fn get_concensus(
         .chunk_by(|c| c.target_name())
     {
         let grp_roi_intervals: Option<&coitrees::BasicCOITree<Option<String>, usize>> =
-            ref_roi_itree.get(tname);
+            if let Some(itvs) = ref_roi_itree.as_ref() {
+                itvs.get(tname)
+            } else {
+                None
+            };
         let mut new_ctgs: Vec<Contig> = vec![];
 
-        // TODO: Rewrite to use intervaltree to view multiple adjacent intervals.
         let mut paf_recs = pafs
-            .filter(|rec| ref_roi_itree.contains_key(rec.target_name()))
+            .filter(|rec| {
+                if let Some(itvs) = ref_roi_itree.as_ref() {
+                    itvs.contains_key(rec.target_name())
+                } else {
+                    true
+                }
+            })
             .sorted_by(|a, b| a.target_start().cmp(&b.target_start()))
             .peekable();
 
@@ -151,13 +157,9 @@ pub fn get_concensus(
             for (mstart, mstop, mtype) in ref_rgn_misassemblies
                 .into_iter()
                 .sorted_by(|a, b| a.0.cmp(&b.0))
-                .filter(|m| m.2.as_deref() != Some("HET"))
             {
-                let overlap_cnt = grp_roi_intervals
-                    .map(|itvs| itvs.query_count(mstart, mstop))
-                    .unwrap_or(0);
-
-                if overlap_cnt == 0 {
+                let is_roi = in_roi(mstart, mstop, grp_roi_intervals);
+                if !is_roi {
                     continue;
                 }
 

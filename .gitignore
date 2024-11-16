@@ -1,2 +1,4 @@
 /target
-*.log
+test.log
+test.bed
+test.fa

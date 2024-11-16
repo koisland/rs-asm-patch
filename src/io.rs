@@ -20,12 +20,12 @@ use super::interval::{Contig, ContigType, RegionIntervalTrees, RegionIntervals};
 pub fn read_bed(
     bed: Option<impl AsRef<Path>>,
     metadata_fn: impl Fn(&str) -> Option<String>,
-) -> eyre::Result<RegionIntervalTrees> {
+) -> eyre::Result<Option<RegionIntervalTrees>> {
     let mut intervals: RegionIntervals = HashMap::new();
     let mut trees: RegionIntervalTrees = HashMap::new();
 
     let Some(bed) = bed else {
-        return Ok(trees);
+        return Ok(None);
     };
     let bed_fh = File::open(bed)?;
     let bed_reader = BufReader::new(bed_fh);
@@ -66,7 +66,7 @@ pub fn read_bed(
     for (roi, intervals) in intervals.into_iter() {
         trees.entry(roi).or_insert(COITree::new(&intervals));
     }
-    Ok(trees)
+    Ok(Some(trees))
 }
 
 pub fn read_paf(paf: impl AsRef<Path>) -> eyre::Result<Vec<PafRecord>> {

@@ -2,26 +2,26 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-#[derive(Parser)]
+#[derive(Debug, Parser)]
 pub struct Args {
     /// Input PAF between input_ref_fa and input_query_fa. Requires cg tag.
-    #[arg(short = 'i', long)]
+    #[arg(short = 'i', long, required = true)]
     pub paf: PathBuf,
 
     /// Input reference fasta file.
-    #[arg(short = 'r', long)]
+    #[arg(short = 'r', long, required = true)]
     pub ref_fa: PathBuf,
 
     /// Input query fasta file.
-    #[arg(short = 'q', long)]
+    #[arg(short = 'q', long, required = true)]
     pub query_fa: PathBuf,
 
     /// Reference misassembly bed.
-    #[arg(long)]
+    #[arg(long, required = true)]
     pub ref_misasm_bed: PathBuf,
 
     /// Query misassembly bed.
-    #[arg(long)]
+    #[arg(long, required = true)]
     pub qry_misasm_bed: PathBuf,
 
     /// Regions to filter alignments in reference.
