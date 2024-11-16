@@ -14,7 +14,6 @@ mod cli;
 mod concensus;
 mod interval;
 mod io;
-mod misassembly;
 use cli::Args;
 
 #[allow(unused)]
