@@ -3,10 +3,11 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{BufRead, BufReader, BufWriter, Write},
+    ops::Deref,
     path::Path,
 };
 
-use coitrees::{COITree, Interval, IntervalTree};
+use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
 use eyre::{Context, ContextCompat};
 use itertools::Itertools;
 use noodles::{
@@ -15,7 +16,7 @@ use noodles::{
 };
 use paf::{PafRecord, Reader};
 
-use super::interval::{Contig, ContigType, RegionIntervalTrees, RegionIntervals};
+use super::interval::{ContigType, RegionIntervalTrees, RegionIntervals};
 
 /// Read an input bedfile and convert it to a [`COITree`].
 ///
@@ -38,12 +39,12 @@ use super::interval::{Contig, ContigType, RegionIntervalTrees, RegionIntervals};
 ///     |start: i32, stop: i32, other_cols: &str| Interval::new(start, stop, Some(other_cols.to_owned()))
 /// )
 /// ```
-pub fn read_bed(
+pub fn read_bed<T: Clone>(
     bed: Option<impl AsRef<Path>>,
-    intervals_fn: impl Fn(i32, i32, &str) -> Interval<Option<String>>,
-) -> eyre::Result<Option<RegionIntervalTrees>> {
-    let mut intervals: RegionIntervals = HashMap::new();
-    let mut trees: RegionIntervalTrees = HashMap::new();
+    intervals_fn: impl Fn(i32, i32, &str) -> Interval<T>,
+) -> eyre::Result<Option<RegionIntervalTrees<T>>> {
+    let mut intervals: RegionIntervals<T> = HashMap::new();
+    let mut trees: RegionIntervalTrees<T> = HashMap::new();
 
     let Some(bed) = bed else {
         return Ok(None);
@@ -167,7 +168,7 @@ impl FastaReaderHandle {
 }
 
 pub fn update_contig_boundaries(
-    ctgs: &mut HashMap<String, Vec<Contig>>,
+    ctgs: &mut RegionIntervals<(ContigType, String)>,
     ref_fh: &FastaReaderHandle,
     qry_fh: &FastaReaderHandle,
 ) -> eyre::Result<()> {
@@ -186,28 +187,33 @@ pub fn update_contig_boundaries(
 
     for (_tname, ctgs) in ctgs.iter_mut() {
         // If only one contig or only category type if target, ignore it.
-        if ctgs.len() == 1 || ctgs.iter().all(|ctg| ctg.category == ContigType::Target) {
+        if ctgs.len() == 1
+            || ctgs
+                .iter()
+                .all(|ctg| ctg.metadata().0 == ContigType::Target)
+        {
             ctgs.clear();
         }
         // Update boundary coordinates of first and last contigs.
         if let Some(ctg) = ctgs.get_mut(0) {
-            ctg.start = 0;
+            ctg.first = 0;
         }
         let last_idx = ctgs.len().saturating_sub(1);
         if let Some(ctg) = ctgs.get_mut(last_idx) {
-            let lengths = if ctg.category == ContigType::Target {
+            let lengths = if ctg.metadata().0 == ContigType::Target {
                 &ref_lengths
             } else {
                 &qry_lengths
             };
-            let ctg_length = lengths.get(&ctg.name.as_ref()).with_context(|| {
+            let ctg_length = lengths.get(ctg.metadata().1.deref()).with_context(|| {
                 format!(
                     "Contig {} doesn't exist in {:?} fai.",
-                    ctg.name, ctg.category
+                    ctg.metadata().1,
+                    ctg.metadata().0
                 )
             })?;
 
-            ctg.stop = *ctg_length as u32
+            *ctg = Interval::new(ctg.first, (*ctg_length).try_into()?, ctg.metadata.clone());
         }
     }
 
@@ -215,7 +221,7 @@ pub fn update_contig_boundaries(
 }
 
 pub fn write_consensus_fa(
-    regions: HashMap<String, Vec<Contig>>,
+    regions: RegionIntervals<(ContigType, String)>,
     ref_fh: &mut FastaReaderHandle,
     qry_fh: &mut FastaReaderHandle,
     mut output_fa: Box<dyn Write>,
@@ -229,17 +235,18 @@ pub fn write_consensus_fa(
         writeln!(output_fa, ">{name}")?;
 
         for ctg in ctgs {
-            let fa_fh = match ctg.category {
+            let (categ, name) = ctg.metadata();
+            let fa_fh = match categ {
                 ContigType::Target => &mut *ref_fh,
                 ContigType::Query => &mut *qry_fh,
             };
 
             // Skip invalid coordinates.
-            if ctg.start >= ctg.stop {
+            if ctg.first >= ctg.last {
                 continue;
             }
 
-            let seq = fa_fh.fetch(&ctg.name, ctg.start, ctg.stop)?;
+            let seq = fa_fh.fetch(name, ctg.first.try_into()?, ctg.last.try_into()?)?;
 
             output_fa.write_all(seq.sequence().as_ref())?;
 
@@ -247,7 +254,7 @@ pub fn write_consensus_fa(
                 writeln!(
                     bed_fh,
                     "{}\t{}\t{}\t{:?}\t{}",
-                    ctg.name, ctg.start, ctg.stop, ctg.category, name
+                    name, ctg.first, ctg.last, categ, name
                 )?;
                 bed_fh.flush()?;
             }

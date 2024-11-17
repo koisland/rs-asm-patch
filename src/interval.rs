@@ -2,22 +2,13 @@ use coitrees::{COITree, Interval, IntervalTree};
 use itertools::Itertools;
 use std::collections::{HashMap, VecDeque};
 
-pub type RegionIntervals = HashMap<String, Vec<Interval<Option<String>>>>;
-pub type RegionIntervalTrees = HashMap<String, COITree<Option<String>, usize>>;
+pub type RegionIntervals<T> = HashMap<String, Vec<Interval<T>>>;
+pub type RegionIntervalTrees<T> = HashMap<String, COITree<T, usize>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContigType {
     Target,
     Query,
-}
-
-#[derive(Debug, Clone)]
-pub struct Contig {
-    pub name: String,
-    pub category: ContigType,
-    pub start: u32,
-    pub stop: u32,
-    pub full_len: u32,
 }
 
 /// Get overlapping intervals in a [`COITree`]. Simply wraps [`COITree::query`].
@@ -104,11 +95,7 @@ where
     COITree::new(&merged)
 }
 
-pub fn in_roi(
-    start: i32,
-    stop: i32,
-    roi_intervals: Option<&COITree<Option<String>, usize>>,
-) -> bool {
+pub fn in_roi<T: Clone>(start: i32, stop: i32, roi_intervals: Option<&COITree<T, usize>>) -> bool {
     if let Some(itvs) = roi_intervals.as_ref() {
         itvs.query_count(start, stop) > 0
     } else {

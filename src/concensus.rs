@@ -1,21 +1,23 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Debug};
 
-use coitrees::IntervalTree;
+use coitrees::{Interval, IntervalTree};
 use itertools::Itertools;
 use paf::PafRecord;
 
 use crate::{
-    interval::{get_overlapping_intervals, in_roi, Contig, ContigType, RegionIntervalTrees},
+    interval::{
+        get_overlapping_intervals, in_roi, ContigType, RegionIntervalTrees, RegionIntervals,
+    },
     liftover::Liftover,
 };
 
-pub fn get_concensus(
+pub fn get_concensus<T: Clone + Debug>(
     paf_rows: &[PafRecord],
-    ref_roi_itree: Option<RegionIntervalTrees>,
-    ref_misasm_itree: RegionIntervalTrees,
-    qry_misasm_itree: RegionIntervalTrees,
+    ref_roi_itree: Option<RegionIntervalTrees<T>>,
+    ref_misasm_itree: RegionIntervalTrees<T>,
+    qry_misasm_itree: RegionIntervalTrees<T>,
     bp_extend_patch: Option<u32>,
-) -> eyre::Result<HashMap<String, Vec<Contig>>> {
+) -> eyre::Result<RegionIntervals<(ContigType, String)>> {
     let mut final_rows = HashMap::new();
     let bp_extend_patch = bp_extend_patch.unwrap_or(0) as i32;
     if bp_extend_patch != 0 {
@@ -27,13 +29,13 @@ pub fn get_concensus(
         .sorted_by(|a, b| a.target_name().cmp(b.target_name()))
         .chunk_by(|c| c.target_name())
     {
-        let grp_roi_intervals: Option<&coitrees::BasicCOITree<Option<String>, usize>> =
+        let grp_roi_intervals: Option<&coitrees::BasicCOITree<T, usize>> =
             if let Some(itvs) = ref_roi_itree.as_ref() {
                 itvs.get(tname)
             } else {
                 None
             };
-        let mut new_ctgs: Vec<Contig> = vec![];
+        let mut new_ctgs: Vec<Interval<(ContigType, String)>> = vec![];
 
         let mut paf_recs = pafs
             .filter(|rec| {
@@ -80,13 +82,11 @@ pub fn get_concensus(
                 if correct_coords.0 == correct_coords.1 {
                     continue;
                 }
-                new_ctgs.push(Contig {
-                    name: tname.to_owned(),
-                    category: ContigType::Target,
-                    start: correct_coords.0.try_into()?,
-                    stop: correct_coords.1.try_into()?,
-                    full_len: paf_rec.target_len(),
-                });
+                new_ctgs.push(Interval::new(
+                    correct_coords.0,
+                    correct_coords.1,
+                    (ContigType::Target, tname.to_owned()),
+                ));
                 let Some((qry_start, qry_stop, qry_ident)) = liftover_itree.query(mstart, mstop)
                 else {
                     log::debug!(
@@ -98,13 +98,11 @@ pub fn get_concensus(
                 log::debug!("Replacing {tname}:{mstart}-{mstop} ({mtype:?}) with {}:{qry_start}-{qry_stop} with identity {qry_ident}.", &qname);
 
                 // TODO: use identity?
-                new_ctgs.push(Contig {
-                    name: qname.clone(),
-                    category: ContigType::Query,
-                    start: qry_start.try_into()?,
-                    stop: qry_stop.try_into()?,
-                    full_len: paf_rec.query_len(),
-                });
+                new_ctgs.push(Interval::new(
+                    qry_start,
+                    qry_stop,
+                    (ContigType::Query, qname.clone()),
+                ));
             }
 
             // Check gaps in alignment.
@@ -113,13 +111,11 @@ pub fn get_concensus(
                 .filter(|rec| rec.query_name() == paf_rec.query_name())
             else {
                 // Add remainder of reference contig.
-                new_ctgs.push(Contig {
-                    name: paf_rec.target_name().to_owned(),
-                    category: ContigType::Target,
-                    start: tstart.try_into()?,
-                    stop: paf_rec.target_len(),
-                    full_len: paf_rec.target_len(),
-                });
+                new_ctgs.push(Interval::new(
+                    tstart,
+                    paf_rec.target_len().try_into()?,
+                    (ContigType::Target, paf_rec.target_name().to_owned()),
+                ));
                 break;
             };
 
@@ -172,43 +168,39 @@ pub fn get_concensus(
                         "Replacing {tname}:{gap_start}-{gap_stop} with {}:{qry_start}-{qry_stop}.",
                         &qname
                     );
-                    new_ctgs.push(Contig {
-                        name: qname.clone(),
-                        category: ContigType::Query,
-                        start: qry_start,
-                        stop: qry_stop,
-                        full_len: paf_rec.query_len(),
-                    });
+                    new_ctgs.push(Interval::new(
+                        qry_start.try_into()?,
+                        qry_stop.try_into()?,
+                        (ContigType::Query, qname.clone()),
+                    ));
                 }
                 // Misassembly in target and query or no information.
                 // Cannot repair. Keep original sequence.
                 (_, _) => {
-                    new_ctgs.push(Contig {
-                        name: tname.to_owned(),
-                        category: ContigType::Target,
-                        start: gap_start,
-                        stop: gap_stop,
-                        full_len: paf_rec.target_len(),
-                    });
+                    new_ctgs.push(Interval::new(
+                        gap_start.try_into()?,
+                        gap_stop.try_into()?,
+                        (ContigType::Target, tname.to_owned()),
+                    ));
                 }
             }
         }
 
         let mut rle_id = 0;
-        let mut collapsed_rows: Vec<(usize, Contig)> = vec![];
+        let mut collapsed_rows: Vec<(usize, Interval<(ContigType, String)>)> = vec![];
         // Group by ctg_name and ctg_type and find min start and max stop coordinate.
-        for (_, ctg_grp_rows) in &new_ctgs.iter().chunk_by(|ctg| (&ctg.name, &ctg.category)) {
+        for (_, ctg_grp_rows) in &new_ctgs.iter().chunk_by(|ctg| &ctg.metadata) {
             // Store id to sort later.
             rle_id += 1;
 
-            let rows: Vec<&Contig> = ctg_grp_rows.collect_vec();
-            let (mut min_start, mut max_stop) = (u32::MAX, 0);
+            let rows: Vec<&Interval<(ContigType, String)>> = ctg_grp_rows.collect_vec();
+            let (mut min_start, mut max_stop) = (i32::MAX, 0);
             for ctg in rows.iter() {
-                if ctg.start < min_start {
-                    min_start = ctg.start
+                if ctg.first < min_start {
+                    min_start = ctg.first
                 }
-                if ctg.stop > max_stop {
-                    max_stop = ctg.stop
+                if ctg.last > max_stop {
+                    max_stop = ctg.last
                 }
             }
             if min_start > max_stop {
@@ -216,13 +208,7 @@ pub fn get_concensus(
             }
 
             // Create collapsed row.
-            let new_ctg = Contig {
-                name: rows[0].name.clone(),
-                category: rows[0].category.clone(),
-                start: min_start,
-                stop: max_stop,
-                full_len: rows[0].full_len,
-            };
+            let new_ctg = Interval::new(min_start, max_stop, rows[0].metadata.clone());
             collapsed_rows.push((rle_id, new_ctg));
         }
 

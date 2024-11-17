@@ -50,7 +50,7 @@ fn main() -> eyre::Result<()> {
 
     // Read ref roi bed.
     let ref_roi_records = io::read_bed(args.ref_roi_bed, |start, stop, _other_cols| {
-        Interval::new(start, stop, None)
+        Interval::new(start, stop, None::<String>)
     })?;
     if let Some(ref_itvs) = ref_roi_records.as_ref() {
         log::info!(

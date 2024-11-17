@@ -11,7 +11,7 @@ use crate::{
 pub fn read_misassemblies(
     bedfile: impl AsRef<Path> + Debug,
     bp_merge_misasm: Option<u32>,
-) -> eyre::Result<RegionIntervalTrees> {
+) -> eyre::Result<RegionIntervalTrees<Option<String>>> {
     // Get bps to merge misasm.
     // Modify the misassemblies and then convert back.
     let misasm_interval_fn = |start, stop, other_cols: &str| {
@@ -39,7 +39,7 @@ pub fn read_misassemblies(
                         Interval::new(
                             itv.first + bp_merge_misasm as i32,
                             itv.last - bp_merge_misasm as i32,
-                            itv.metadata,
+                            itv.metadata.clone(),
                         )
                     }),
                 );
@@ -53,6 +53,8 @@ pub fn read_misassemblies(
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Debug;
+
     use coitrees::{Interval, IntervalTree};
     use itertools::Itertools;
 
@@ -60,9 +62,9 @@ mod tests {
 
     use super::read_misassemblies;
 
-    fn assert_region_itree_equal(
-        rgn_itree_1: RegionIntervalTrees,
-        rgn_itree_2: RegionIntervalTrees,
+    fn assert_region_itree_equal<T: Clone + PartialEq + Debug>(
+        rgn_itree_1: RegionIntervalTrees<T>,
+        rgn_itree_2: RegionIntervalTrees<T>,
     ) {
         for ((rgn_1, rgn_1_itree), (rgn_2, rgn_2_itree)) in rgn_itree_1
             .into_iter()

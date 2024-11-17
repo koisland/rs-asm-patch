@@ -12,9 +12,9 @@ pub struct Liftover {
 }
 
 impl Liftover {
-    pub fn new(
+    pub fn new<T: Clone>(
         paf_rec: &PafRecord,
-        filter_intervals: Option<&COITree<Option<String>, usize>>,
+        filter_intervals: Option<&COITree<T, usize>>,
     ) -> eyre::Result<Self> {
         let Some(cg) = paf_rec.cg() else {
             bail!("No cigar in {paf_rec:?}.")
