@@ -48,22 +48,23 @@ where
 /// Merge intervals in a [`COITree`]. Includes book-ended intervals.
 ///
 /// # Arguments
-/// * `itree`: Interval tree to merge overlaps. Elements are cloned.
+/// * `intervals`: Intervals to merge. Elements are cloned.
 /// * `data_reducer`: Function to reduce metadata.
 /// * `data_finalizer`: Function to apply some final operation on intervals.
 ///
 /// # Returns
 /// * Merged overlapping intervals.
-pub fn merge_overlapping_intervals<T>(
-    itree: &COITree<T, usize>,
+pub fn merge_overlapping_intervals<'a, I, T>(
+    intervals: I,
     data_reducer: impl Fn(&T, &T) -> T,
     data_finalizer: Option<impl Fn(Interval<T>) -> Interval<T>>,
 ) -> COITree<T, usize>
 where
-    T: Clone,
+    I: Iterator<Item = Interval<&'a T>> + ExactSizeIterator,
+    T: Clone + 'a,
 {
-    let mut merged: Vec<Interval<T>> = Vec::with_capacity(itree.len());
-    let mut intervals: VecDeque<Interval<T>> = itree
+    let mut merged: Vec<Interval<T>> = Vec::with_capacity(intervals.len());
+    let mut intervals: VecDeque<Interval<T>> = intervals
         .into_iter()
         .sorted_by(|a, b| a.first.cmp(&b.first))
         .map(|itv| Interval::new(itv.first, itv.last, itv.metadata.clone()))
@@ -156,7 +157,7 @@ mod tests {
             Interval::new(6, 9, 3),
         ];
         let itree: COITree<usize, usize> = COITree::new(&itvs);
-        let merged_itree = merge_overlapping_intervals(&itree, reduce_to_a, Some(noop));
+        let merged_itree = merge_overlapping_intervals(itree.iter(), reduce_to_a, Some(noop));
         assert_itree_equal(&itree, &merged_itree);
     }
 
@@ -168,7 +169,7 @@ mod tests {
             Interval::new(6, 9, 3),
         ];
         let itree: COITree<usize, usize> = COITree::new(&itvs);
-        let merged_itree = merge_overlapping_intervals(&itree, reduce_to_a, Some(noop));
+        let merged_itree = merge_overlapping_intervals(itree.iter(), reduce_to_a, Some(noop));
 
         let exp_itvs = vec![Interval::new(1, 5, 1), Interval::new(6, 9, 3)];
         let exp_itree: COITree<usize, usize> = COITree::new(&exp_itvs);
@@ -184,7 +185,7 @@ mod tests {
             Interval::new(3, 6, 2),
         ];
         let itree: COITree<usize, usize> = COITree::new(&itvs);
-        let merged_itree = merge_overlapping_intervals(&itree, reduce_to_a, Some(noop));
+        let merged_itree = merge_overlapping_intervals(itree.iter(), reduce_to_a, Some(noop));
 
         let exp_itvs = vec![Interval::new(1, 9, 1)];
         let exp_itree: COITree<usize, usize> = COITree::new(&exp_itvs);

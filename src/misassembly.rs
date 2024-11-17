@@ -1,6 +1,6 @@
 use std::{fmt::Debug, path::Path};
 
-use coitrees::Interval;
+use coitrees::{Interval, IntervalTree};
 
 use crate::{
     interval::{merge_overlapping_intervals, RegionIntervalTrees},
@@ -33,7 +33,7 @@ pub fn read_misassemblies(
             .into_iter()
             .map(|(name, itree)| {
                 let corrected_intervals = merge_overlapping_intervals(
-                    &itree,
+                    itree.iter(),
                     |a, _b| a.clone(),
                     Some(|itv: Interval<Option<String>>| {
                         Interval::new(
