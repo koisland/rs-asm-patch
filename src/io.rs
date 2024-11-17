@@ -188,6 +188,10 @@ pub fn update_contig_boundaries(
         .collect();
 
     for (_tname, ctgs) in ctgs.iter_mut() {
+        // If only one contig or only category type if target, ignore it.
+        if ctgs.len() == 1 || ctgs.iter().all(|ctg| ctg.category == ContigType::Target) {
+            ctgs.clear();
+        }
         // Update boundary coordinates of first and last contigs.
         if let Some(ctg) = ctgs.get_mut(0) {
             ctg.start = 0;
