@@ -17,9 +17,30 @@ use paf::{PafRecord, Reader};
 
 use super::interval::{Contig, ContigType, RegionIntervalTrees, RegionIntervals};
 
+/// Read an input bedfile and convert it to a [`COITree`].
+///
+/// # Arguments
+/// * `bed`: Bedfile path.
+/// * `intervals_fn`: Function applied to `(start, stop, other_cols)` to convert into an [`Interval`].
+///
+/// # Examples
+/// BED3 record.
+/// ```
+/// let records = read_bed(
+///     "test.bed",
+///     |start: i32, stop: i32, other_cols: &str| Interval::new(start, stop, None)
+/// )
+/// ```
+/// BED4 record
+/// ```
+/// let records = read_bed(
+///     "test.bed",
+///     |start: i32, stop: i32, other_cols: &str| Interval::new(start, stop, Some(other_cols.to_owned()))
+/// )
+/// ```
 pub fn read_bed(
     bed: Option<impl AsRef<Path>>,
-    metadata_fn: impl Fn(&str) -> Option<String>,
+    intervals_fn: impl Fn(i32, i32, &str) -> Interval<Option<String>>,
 ) -> eyre::Result<Option<RegionIntervalTrees>> {
     let mut intervals: RegionIntervals = HashMap::new();
     let mut trees: RegionIntervalTrees = HashMap::new();
@@ -48,20 +69,8 @@ pub fn read_bed(
 
         intervals
             .entry(name.to_owned())
-            .and_modify(|intervals| {
-                intervals.push(Interval {
-                    first,
-                    last,
-                    metadata: metadata_fn(other_cols),
-                })
-            })
-            .or_insert_with(|| {
-                vec![Interval {
-                    first,
-                    last,
-                    metadata: metadata_fn(other_cols),
-                }]
-            });
+            .and_modify(|intervals| intervals.push(intervals_fn(first, last, other_cols)))
+            .or_insert_with(|| vec![intervals_fn(first, last, other_cols)]);
     }
     for (roi, intervals) in intervals.into_iter() {
         trees.entry(roi).or_insert(COITree::new(&intervals));

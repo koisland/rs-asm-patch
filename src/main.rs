@@ -6,8 +6,9 @@ use std::{
 };
 
 use clap::Parser;
-use coitrees::IntervalTree;
+use coitrees::{Interval, IntervalTree};
 use log::LevelFilter;
+use misassembly::read_misassemblies;
 use simple_logger::SimpleLogger;
 
 mod cigar;
@@ -16,11 +17,11 @@ mod concensus;
 mod interval;
 mod io;
 mod liftover;
-use cli::Args;
+mod misassembly;
 
 #[allow(unused)]
-fn debug_args() -> eyre::Result<Args> {
-    Ok(Args {
+fn debug_args() -> eyre::Result<cli::Args> {
+    Ok(cli::Args {
         paf: PathBuf::from_str("data/mPanPan1_trim.paf")?,
         ref_fa: PathBuf::from_str("data/mPanPan1_merged_dedup_asm.fa.gz")?,
         query_fa: PathBuf::from_str("data/mPanPan1_merged_dedup_asm_query.fa.gz")?,
@@ -29,12 +30,14 @@ fn debug_args() -> eyre::Result<Args> {
         ref_roi_bed: Some(PathBuf::from_str("data/mPanPan1.matpat.ALR.500kbp.bed")?),
         output_fa: Some(PathBuf::from_str("/dev/null")?),
         output_bed: Some(PathBuf::from_str("test.bed")?),
+        // bp_extend_patch: None,
+        bp_merge_misasm: None,
         log_level: String::from("Debug"),
     })
 }
 
 fn main() -> eyre::Result<()> {
-    let args = Args::parse();
+    let args = cli::Args::parse();
     // let args = debug_args()?;
     let log_level = LevelFilter::from_str(&args.log_level)?;
     SimpleLogger::new().with_level(log_level).init()?;
@@ -46,7 +49,9 @@ fn main() -> eyre::Result<()> {
     let paf_records = io::read_paf(args.paf)?;
 
     // Read ref roi bed.
-    let ref_roi_records = io::read_bed(args.ref_roi_bed, |_| None)?;
+    let ref_roi_records = io::read_bed(args.ref_roi_bed, |start, stop, _other_cols| {
+        Interval::new(start, stop, None)
+    })?;
     if let Some(ref_itvs) = ref_roi_records.as_ref() {
         log::info!(
             "Patching {} provided reference regions.",
@@ -56,12 +61,9 @@ fn main() -> eyre::Result<()> {
         log::info!("Patching all regions since no reference region bed provided.");
     }
 
-    // Read misassemblies.
-    // Always required.
-    let ref_misasm_records =
-        io::read_bed(Some(args.ref_misasm_bed), |rec| Some(rec.to_owned()))?.unwrap();
-    let qry_misasm_records =
-        io::read_bed(Some(args.qry_misasm_bed), |rec| Some(rec.to_owned()))?.unwrap();
+    // Read misassemblies and merge overlaps if provided.
+    let ref_misasm_records = read_misassemblies(args.ref_misasm_bed, args.bp_merge_misasm)?;
+    let qry_misasm_records = read_misassemblies(args.qry_misasm_bed, args.bp_merge_misasm)?;
 
     let mut new_ctgs = concensus::get_concensus(
         &paf_records,

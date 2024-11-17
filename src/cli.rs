@@ -24,6 +24,13 @@ pub struct Args {
     #[arg(long, required = true)]
     pub qry_misasm_bed: PathBuf,
 
+    /// Merge misassemblies by provided bp.
+    #[arg(long)]
+    pub bp_merge_misasm: Option<i32>,
+
+    // /// Extend patched region by provided bp.
+    // #[arg(long)]
+    // pub bp_extend_patch: Option<i32>,
     /// Regions to filter alignments in reference.
     #[arg(long)]
     pub ref_roi_bed: Option<PathBuf>,

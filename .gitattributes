@@ -9,3 +9,5 @@ data/mPanPan1_merged_dedup_asm_query.fa.gz.fai filter=lfs diff=lfs merge=lfs -te
 data/mPanPan1_merged_dedup_asm.fa.gz.gzi filter=lfs diff=lfs merge=lfs -text
 data/mPanPan1_merged_dedup_asm_query.fa.gz.gzi filter=lfs diff=lfs merge=lfs -text
 data/mPanPan1_merged_dedup_asm.wg.bed filter=lfs diff=lfs merge=lfs -text
+data/test/merge_overlaps/output.bed filter=lfs diff=lfs merge=lfs -text
+data/test/merge_overlaps/input.bed filter=lfs diff=lfs merge=lfs -text
