@@ -245,6 +245,7 @@ pub fn write_consensus_fa(
                     "{}\t{}\t{}\t{:?}\t{}",
                     ctg.name, ctg.start, ctg.stop, ctg.category, name
                 )?;
+                bed_fh.flush()?;
             }
         }
         writeln!(output_fa)?;

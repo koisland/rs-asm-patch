@@ -14,8 +14,14 @@ pub fn get_concensus(
     ref_roi_itree: Option<RegionIntervalTrees>,
     ref_misasm_itree: RegionIntervalTrees,
     qry_misasm_itree: RegionIntervalTrees,
+    bp_extend_patch: Option<u32>,
 ) -> eyre::Result<HashMap<String, Vec<Contig>>> {
     let mut final_rows = HashMap::new();
+    let bp_extend_patch = bp_extend_patch.unwrap_or(0) as i32;
+    if bp_extend_patch != 0 {
+        log::info!("Extending patched regions by {bp_extend_patch} bp.")
+    }
+
     for (tname, pafs) in &paf_rows
         .iter()
         .sorted_by(|a, b| a.target_name().cmp(b.target_name()))
@@ -63,6 +69,11 @@ pub fn get_concensus(
                     continue;
                 }
 
+                // Add more to misassembled region to extend patched region.
+                let (mstart, mstop) = (
+                    mstart.saturating_sub(bp_extend_patch).clamp(0, i32::MAX),
+                    mstop + bp_extend_patch,
+                );
                 let correct_coords = (tstart, mstart.saturating_sub(1).clamp(0, i32::MAX));
                 tstart = mstop;
                 // Ignore if null interval.
@@ -78,6 +89,10 @@ pub fn get_concensus(
                 });
                 let Some((qry_start, qry_stop, qry_ident)) = liftover_itree.query(mstart, mstop)
                 else {
+                    log::debug!(
+                        "Unable to liftover {tname}:{mstart}-{mstop} ({mtype:?}) to {}.",
+                        &qname
+                    );
                     continue;
                 };
                 log::debug!("Replacing {tname}:{mstart}-{mstop} ({mtype:?}) with {}:{qry_start}-{qry_stop} with identity {qry_ident}.", &qname);

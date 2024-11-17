@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{fmt::Debug, path::Path};
 
 use coitrees::Interval;
 
@@ -9,25 +9,26 @@ use crate::{
 
 /// Read misassemblies and optionally merge intervals by some bp distance.
 pub fn read_misassemblies(
-    bedfile: impl AsRef<Path>,
-    bp_merge_misasm: Option<i32>,
+    bedfile: impl AsRef<Path> + Debug,
+    bp_merge_misasm: Option<u32>,
 ) -> eyre::Result<RegionIntervalTrees> {
     // Get bps to merge misasm.
     // Modify the misassemblies and then convert back.
     let misasm_interval_fn = |start, stop, other_cols: &str| {
         let (start, stop) = bp_merge_misasm
-            .map(|bp| (start - bp, stop + bp))
+            .map(|bp| (start - bp as i32, stop + bp as i32))
             .unwrap_or_else(|| (start, stop));
 
         Interval::new(start, stop, Some(other_cols.to_owned()))
     };
     // Read misassemblies.
     // Always required.
-    let ref_misasm_records = io::read_bed(Some(bedfile), misasm_interval_fn)?.unwrap();
+    let ref_misasm_records = io::read_bed(Some(&bedfile), misasm_interval_fn)?.unwrap();
 
     // Merge overlaps.
     // Then reverse bp modification above.
     if let Some(bp_merge_misasm) = bp_merge_misasm {
+        log::info!("Merging overlapping intervals in {bedfile:?} by {bp_merge_misasm} bp.");
         Ok(ref_misasm_records
             .into_iter()
             .map(|(name, itree)| {
@@ -36,8 +37,8 @@ pub fn read_misassemblies(
                     |a, _b| a.clone(),
                     Some(|itv: Interval<Option<String>>| {
                         Interval::new(
-                            itv.first + bp_merge_misasm,
-                            itv.last - bp_merge_misasm,
+                            itv.first + bp_merge_misasm as i32,
+                            itv.last - bp_merge_misasm as i32,
                             itv.metadata,
                         )
                     }),

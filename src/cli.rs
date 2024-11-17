@@ -26,11 +26,12 @@ pub struct Args {
 
     /// Merge misassemblies by provided bp.
     #[arg(long)]
-    pub bp_merge_misasm: Option<i32>,
+    pub bp_merge_misasm: Option<u32>,
 
-    // /// Extend patched region by provided bp.
-    // #[arg(long)]
-    // pub bp_extend_patch: Option<i32>,
+    /// Extend patched region on both ends by provided bp.
+    #[arg(long)]
+    pub bp_extend_patch: Option<u32>,
+
     /// Regions to filter alignments in reference.
     #[arg(long)]
     pub ref_roi_bed: Option<PathBuf>,

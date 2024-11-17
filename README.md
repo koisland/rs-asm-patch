@@ -3,9 +3,9 @@ Patch two assemblies using misassembly calls and alignment between two assemblie
 
 > WIP
 
-Align two assemblies with minimap2 on asm20 preset.
+Align two assemblies with minimap2 on asm5 preset.
 ```bash
-minimap2 -t 12 -ax asm20 --eqx --cs -s 25000 -K 8G mPanPan1_merged_dedup_asm.fa.gz mPanPan1_merged_dedup_asm_query.fa.gz > mPanPan1.paf
+minimap2 -t 12 -ax asm5 --eqx --cs -s 25000 -K 8G mPanPan1_merged_dedup_asm.fa.gz mPanPan1_merged_dedup_asm_query.fa.gz > mPanPan1.paf
 ```
 
 Then trimmed with rustybam trim.
@@ -36,6 +36,3 @@ cargo run -- \
 -b test.bed \
 -o test.fa 2> test.log
 ```
-
-TODO
-* chr21_mat_hsa20

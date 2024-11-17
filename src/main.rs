@@ -30,7 +30,7 @@ fn debug_args() -> eyre::Result<cli::Args> {
         ref_roi_bed: Some(PathBuf::from_str("data/mPanPan1.matpat.ALR.500kbp.bed")?),
         output_fa: Some(PathBuf::from_str("/dev/null")?),
         output_bed: Some(PathBuf::from_str("test.bed")?),
-        // bp_extend_patch: None,
+        bp_extend_patch: None,
         bp_merge_misasm: None,
         log_level: String::from("Debug"),
     })
@@ -70,6 +70,7 @@ fn main() -> eyre::Result<()> {
         ref_roi_records,
         ref_misasm_records,
         qry_misasm_records,
+        args.bp_extend_patch,
     )?;
     log::info!(
         "Generated {:?} consensus sequences.",
@@ -96,8 +97,10 @@ fn main() -> eyre::Result<()> {
     };
 
     io::update_contig_boundaries(&mut new_ctgs, &ref_fh, &qry_fh)?;
+
     log::info!("Writing concensus fasta...");
     io::write_consensus_fa(new_ctgs, &mut ref_fh, &mut qry_fh, output_fa, output_bed)?;
+    log::info!("Done.");
 
     Ok(())
 }
