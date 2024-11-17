@@ -222,6 +222,9 @@ pub fn write_consensus_fa(
     mut output_bed: Option<BufWriter<File>>,
 ) -> eyre::Result<()> {
     for (name, ctgs) in regions {
+        if ctgs.is_empty() {
+            continue;
+        }
         // Write header.
         writeln!(output_fa, ">{name}")?;
 
