@@ -53,18 +53,15 @@ pub fn read_bed(
 
     for line in bed_reader.lines() {
         let line = line?;
-
-        let bed3: Option<(&str, &str, &str)> = line.splitn(3, '\t').collect_tuple();
-        let bedn: Option<(&str, &str, &str, &str)> = line.splitn(4, '\t').collect_tuple();
-
-        let (name, start, stop, other_cols) = if let Some((name, start, stop, other_cols)) = bedn {
-            (name, start, stop, other_cols)
-        } else if let Some((name, start, stop)) = bed3 {
-            (name, start, stop, "")
-        } else {
-            log::error!("Invalid line: {line}");
-            continue;
-        };
+        let (name, start, stop, other_cols) =
+            if let Some((name, start, stop, other_cols)) = line.splitn(4, '\t').collect_tuple() {
+                (name, start, stop, other_cols)
+            } else if let Some((name, start, stop)) = line.splitn(3, '\t').collect_tuple() {
+                (name, start, stop, "")
+            } else {
+                log::error!("Invalid line: {line}");
+                continue;
+            };
         let (first, last) = (start.parse::<i32>()?, stop.parse::<i32>()?);
 
         intervals
