@@ -227,15 +227,15 @@ pub fn write_consensus_fa(
     mut output_fa: Box<dyn Write>,
     mut output_bed: Option<BufWriter<File>>,
 ) -> eyre::Result<()> {
-    for (name, ctgs) in regions {
+    for (ref_name, ctgs) in regions {
         if ctgs.is_empty() {
             continue;
         }
         // Write header.
-        writeln!(output_fa, ">{name}")?;
+        writeln!(output_fa, ">{ref_name}")?;
 
         for ctg in ctgs {
-            let (categ, name) = ctg.metadata();
+            let (categ, ctg_name) = ctg.metadata();
             let fa_fh = match categ {
                 ContigType::Target => &mut *ref_fh,
                 ContigType::Query => &mut *qry_fh,
@@ -246,7 +246,7 @@ pub fn write_consensus_fa(
                 continue;
             }
 
-            let seq = fa_fh.fetch(name, ctg.first.try_into()?, ctg.last.try_into()?)?;
+            let seq = fa_fh.fetch(ctg_name, ctg.first.try_into()?, ctg.last.try_into()?)?;
 
             output_fa.write_all(seq.sequence().as_ref())?;
 
@@ -254,7 +254,7 @@ pub fn write_consensus_fa(
                 writeln!(
                     bed_fh,
                     "{}\t{}\t{}\t{:?}\t{}",
-                    name, ctg.first, ctg.last, categ, name
+                    ctg_name, ctg.first, ctg.last, categ, ref_name
                 )?;
                 bed_fh.flush()?;
             }

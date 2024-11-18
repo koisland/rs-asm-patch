@@ -1,6 +1,6 @@
 use std::{fmt::Debug, path::Path};
 
-use coitrees::{Interval, IntervalTree};
+use coitrees::{COITree, Interval, IntervalTree};
 
 use crate::{
     interval::{merge_overlapping_intervals, RegionIntervalTrees},
@@ -43,7 +43,7 @@ pub fn read_misassemblies(
                         )
                     }),
                 );
-                (name, corrected_intervals)
+                (name, COITree::new(&corrected_intervals))
             })
             .collect())
     } else {

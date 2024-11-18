@@ -49,7 +49,7 @@ pub fn merge_overlapping_intervals<'a, I, T>(
     intervals: I,
     data_reducer: impl Fn(&T, &T) -> T,
     data_finalizer: Option<impl Fn(Interval<T>) -> Interval<T>>,
-) -> COITree<T, usize>
+) -> Vec<Interval<T>>
 where
     I: Iterator<Item = Interval<&'a T>> + ExactSizeIterator,
     T: Clone + 'a,
@@ -87,12 +87,11 @@ where
         }
     }
     // Apply finalizer function
-    let merged = if let Some(data_finalizer) = data_finalizer {
+    if let Some(data_finalizer) = data_finalizer {
         merged.into_iter().map(data_finalizer).collect_vec()
     } else {
         merged
-    };
-    COITree::new(&merged)
+    }
 }
 
 pub fn in_roi<T: Clone>(start: i32, stop: i32, roi_intervals: Option<&COITree<T, usize>>) -> bool {
@@ -145,7 +144,7 @@ mod tests {
         ];
         let itree: COITree<usize, usize> = COITree::new(&itvs);
         let merged_itree = merge_overlapping_intervals(itree.iter(), reduce_to_a, Some(noop));
-        assert_itree_equal(&itree, &merged_itree);
+        assert_itree_equal(&itree, &COITree::new(&merged_itree));
     }
 
     #[test]
@@ -161,7 +160,7 @@ mod tests {
         let exp_itvs = vec![Interval::new(1, 5, 1), Interval::new(6, 9, 3)];
         let exp_itree: COITree<usize, usize> = COITree::new(&exp_itvs);
 
-        assert_itree_equal(&exp_itree, &merged_itree);
+        assert_itree_equal(&exp_itree, &COITree::new(&merged_itree));
     }
 
     #[test]
@@ -177,6 +176,6 @@ mod tests {
         let exp_itvs = vec![Interval::new(1, 9, 1)];
         let exp_itree: COITree<usize, usize> = COITree::new(&exp_itvs);
 
-        assert_itree_equal(&exp_itree, &merged_itree);
+        assert_itree_equal(&exp_itree, &COITree::new(&merged_itree));
     }
 }
