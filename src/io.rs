@@ -14,7 +14,6 @@ use noodles::{
     bgzf::{self, IndexedReader},
     fasta,
 };
-use paf::{PafRecord, Reader};
 
 use super::interval::{ContigType, RegionIntervalTrees, RegionIntervals};
 
@@ -74,14 +73,6 @@ pub fn read_bed<T: Clone>(
         trees.entry(roi).or_insert(COITree::new(&intervals));
     }
     Ok(Some(trees))
-}
-
-pub fn read_paf(paf: impl AsRef<Path>) -> eyre::Result<Vec<PafRecord>> {
-    Ok(Reader::from_path(&paf)?
-        .records()
-        .flatten()
-        .filter(|r| r.mapping_quality() == 60 && r.strand() == '+')
-        .collect_vec())
 }
 
 pub enum FastaReader {

@@ -20,6 +20,8 @@ data/mPanPan1_cen_misassemblies.bed
 data/mPanPan1_cen_misassemblies_query.bed
 ```
 
+Use [`impg`] to liftover query coordinates to reference coordinates and substitute.
+
 ### Test
 Run script on mPanPan1.
 * Verkko reference
