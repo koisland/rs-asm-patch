@@ -11,6 +11,7 @@ pub enum ContigType {
     Query,
 }
 
+#[allow(unused)]
 /// Get overlapping intervals in a [`COITree`]. Simply wraps [`COITree::query`].
 ///
 /// # Arguments
