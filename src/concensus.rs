@@ -6,10 +6,9 @@ use impg::paf::{PafRecord, Strand};
 use itertools::Itertools;
 
 use crate::interval::{
-    in_roi, merge_overlapping_intervals, ContigType, RegionIntervalTrees, RegionIntervals,
+    in_roi, merge_overlapping_intervals, ContigInfo, ContigType, RegionIntervalTrees,
+    RegionIntervals,
 };
-
-type ReplaceInterval = Interval<(ContigType, String, Strand)>;
 
 fn merge_collapse_rows_by_rle_id<T: Clone + std::cmp::PartialEq>(
     itvs: Vec<(usize, Interval<T>)>,
@@ -38,7 +37,7 @@ pub fn get_concensus<T: Clone + Debug>(
     ref_misasm_itree: RegionIntervalTrees<T>,
     _qry_misasm_itree: RegionIntervalTrees<T>,
     bp_extend_patch: Option<u32>,
-) -> eyre::Result<RegionIntervals<(ContigType, String, Strand)>> {
+) -> eyre::Result<RegionIntervals<ContigInfo>> {
     let mut final_rows = HashMap::new();
     let bp_extend_patch = bp_extend_patch.unwrap_or(0) as i32;
     if bp_extend_patch != 0 {
@@ -55,7 +54,7 @@ pub fn get_concensus<T: Clone + Debug>(
             } else {
                 None
             };
-        let mut new_ctgs: Vec<ReplaceInterval> = vec![];
+        let mut new_ctgs: Vec<Interval<ContigInfo>> = vec![];
         let Some((rid, rlen)) = impg
             .seq_index
             .get_id(rname)
@@ -145,13 +144,13 @@ pub fn get_concensus<T: Clone + Debug>(
         ));
 
         let mut rle_id = 0;
-        let mut collapsed_rows: Vec<(usize, ReplaceInterval)> = vec![];
+        let mut collapsed_rows: Vec<(usize, Interval<ContigInfo>)> = vec![];
         // Group by ctg_name and ctg_type and find min start and max stop coordinate.
         for (_, ctg_grp_rows) in &new_ctgs.iter().chunk_by(|ctg| &ctg.metadata) {
             // Store id to sort later.
             rle_id += 1;
 
-            let rows: Vec<&ReplaceInterval> = ctg_grp_rows.collect_vec();
+            let rows: Vec<&Interval<ContigInfo>> = ctg_grp_rows.collect_vec();
             let (mut min_start, mut max_stop) = (i32::MAX, 0);
             for ctg in rows.iter() {
                 if ctg.first < min_start {

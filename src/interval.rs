@@ -1,9 +1,11 @@
 use coitrees::{COITree, Interval, IntervalTree};
+use impg::paf::Strand;
 use itertools::Itertools;
 use std::collections::{HashMap, VecDeque};
 
 pub type RegionIntervals<T> = HashMap<String, Vec<Interval<T>>>;
 pub type RegionIntervalTrees<T> = HashMap<String, COITree<T, usize>>;
+pub type ContigInfo = (ContigType, String, Strand);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ContigType {

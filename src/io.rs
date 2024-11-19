@@ -16,7 +16,7 @@ use noodles::{
     fasta,
 };
 
-use super::interval::{ContigType, RegionIntervalTrees, RegionIntervals};
+use super::interval::{ContigInfo, ContigType, RegionIntervalTrees, RegionIntervals};
 
 /// Read an input bedfile and convert it to a [`COITree`].
 ///
@@ -160,7 +160,7 @@ impl FastaReaderHandle {
 }
 
 pub fn update_contig_boundaries(
-    ctgs: &mut RegionIntervals<(ContigType, String, Strand)>,
+    ctgs: &mut RegionIntervals<ContigInfo>,
     ref_fh: &FastaReaderHandle,
 ) -> eyre::Result<()> {
     let ref_lengths: HashMap<&str, u64> = ref_fh
@@ -206,7 +206,7 @@ pub fn update_contig_boundaries(
 }
 
 pub fn write_consensus_fa(
-    regions: RegionIntervals<(ContigType, String, Strand)>,
+    regions: RegionIntervals<ContigInfo>,
     ref_fh: &mut FastaReaderHandle,
     qry_fh: &mut FastaReaderHandle,
     mut output_fa: Box<dyn Write>,
