@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt::Debug};
 
-use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
+use coitrees::Interval;
 use eyre::bail;
 use impg::paf::{PafRecord, Strand};
 use itertools::Itertools;
@@ -12,33 +12,21 @@ use crate::interval::{
 fn merge_collapse_rows_by_rle_id(
     itvs: Vec<(usize, Interval<(ContigType, String)>)>,
 ) -> Vec<Interval<(ContigType, String)>> {
-    let mut ref_itvs = vec![];
-    let mut qry_itvs = vec![];
-    for (i, itv) in itvs {
-        let (ctype, _name) = itv.metadata();
-        let itv = Interval::new(itv.first, itv.last, (i, itv.metadata.clone()));
-        match ctype {
-            ContigType::Target => {
-                ref_itvs.push(itv);
-            }
-            ContigType::Query => {
-                qry_itvs.push(itv);
-            }
-        }
-    }
-    let ref_itree: COITree<(usize, (ContigType, String)), usize> = COITree::new(&ref_itvs);
-    let qry_itree: COITree<(usize, (ContigType, String)), usize> = COITree::new(&qry_itvs);
+    let mut final_itvs = vec![];
+
     // Merge overlapping intervals based on rle id.
-    merge_overlapping_intervals(ref_itree.iter(), |a, _b| a.clone(), Some(|a| a))
+    for (_, itv_grp) in &itvs
         .into_iter()
-        .chain(merge_overlapping_intervals(
-            qry_itree.iter(),
+        .sorted_by(|a, b| a.0.cmp(&b.0))
+        .chunk_by(|a| a.1.metadata.clone())
+    {
+        final_itvs.extend(merge_overlapping_intervals(
+            itv_grp.into_iter().map(|itv| itv.1),
             |a, _b| a.clone(),
             Some(|a| a),
-        ))
-        .sorted_by(|a, b| a.metadata.0.cmp(&b.metadata.0))
-        .map(|a| Interval::new(a.first, a.last, a.metadata.1))
-        .collect()
+        ));
+    }
+    final_itvs
 }
 
 pub fn get_concensus<T: Clone + Debug>(
@@ -179,10 +167,8 @@ pub fn get_concensus<T: Clone + Debug>(
             let new_ctg = Interval::new(min_start, max_stop, rows[0].metadata.clone());
             collapsed_rows.push((rle_id, new_ctg));
         }
-
-        final_rows
-            .entry(rname.to_owned())
-            .or_insert_with(|| merge_collapse_rows_by_rle_id(collapsed_rows));
+        let collapsed_rows = merge_collapse_rows_by_rle_id(collapsed_rows);
+        final_rows.entry(rname.to_owned()).or_insert(collapsed_rows);
     }
 
     Ok(final_rows)

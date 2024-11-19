@@ -33,7 +33,9 @@ pub fn read_misassemblies(
             .into_iter()
             .map(|(name, itree)| {
                 let corrected_intervals = merge_overlapping_intervals(
-                    itree.iter(),
+                    itree
+                        .iter()
+                        .map(|a| Interval::new(a.first, a.last, a.metadata.clone())),
                     |a, _b| a.clone(),
                     Some(|itv: Interval<Option<String>>| {
                         Interval::new(
