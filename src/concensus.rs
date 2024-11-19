@@ -119,10 +119,7 @@ pub fn get_concensus<T: Clone + Debug>(
                 .chunk_by(|(itv, _, _)| itv.metadata)
             {
                 for (qitv, _, _) in ritv_grps {
-                    let (Some(qname), Some(qlen)) = (
-                        impg.seq_index.get_name(qitv.metadata),
-                        impg.seq_index.get_len_from_id(qitv.metadata),
-                    ) else {
+                    let Some(qname) = impg.seq_index.get_name(qitv.metadata) else {
                         bail!("Invalid query index. ({})", qitv.metadata)
                     };
                     let itv_diff = qitv.last - qitv.first;
@@ -134,20 +131,13 @@ pub fn get_concensus<T: Clone + Debug>(
                     if itv_diff == 0 {
                         continue;
                     }
-                    log::debug!(
-                        "\tLifted to {qname}:{}-{} ({strand:?}).",
-                        qitv.first,
-                        qitv.last,
-                    );
                     // Correct coordinates.
                     let (qstart, qstop) = if strand == Strand::Reverse {
-                        let qlen = TryInto::<i32>::try_into(qlen)?;
-                        let (adj_qstart, adj_qstop) = (qlen - qitv.first, qlen - qitv.last);
-                        log::debug!("\tAdjusted coordinates to {qname}:{adj_qstart}-{adj_qstop}");
-                        (adj_qstart, adj_qstop)
+                        (qitv.last, qitv.first)
                     } else {
                         (qitv.first, qitv.last)
                     };
+                    log::debug!("\tLifted to {qname}:{}-{} ({strand:?}).", qstart, qstop,);
                     new_ctgs.push(Interval::new(
                         qstart,
                         qstop,
