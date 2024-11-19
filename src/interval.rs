@@ -108,7 +108,6 @@ mod tests {
     use std::fmt::Debug;
 
     use coitrees::Interval;
-    use itertools::Itertools;
 
     use super::merge_overlapping_intervals;
 

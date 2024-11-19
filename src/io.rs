@@ -8,7 +8,8 @@ use std::{
 };
 
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
-use eyre::{Context, ContextCompat};
+use eyre::{bail, Context, ContextCompat};
+use impg::paf::Strand;
 use itertools::Itertools;
 use noodles::{
     bgzf::{self, IndexedReader},
@@ -159,17 +160,10 @@ impl FastaReaderHandle {
 }
 
 pub fn update_contig_boundaries(
-    ctgs: &mut RegionIntervals<(ContigType, String)>,
+    ctgs: &mut RegionIntervals<(ContigType, String, Strand)>,
     ref_fh: &FastaReaderHandle,
-    qry_fh: &FastaReaderHandle,
 ) -> eyre::Result<()> {
     let ref_lengths: HashMap<&str, u64> = ref_fh
-        .fai
-        .as_ref()
-        .iter()
-        .flat_map(|rec| str::from_utf8(rec.name()).map(|name| (name, rec.length())))
-        .collect();
-    let qry_lengths: HashMap<&str, u64> = qry_fh
         .fai
         .as_ref()
         .iter()
@@ -194,7 +188,7 @@ pub fn update_contig_boundaries(
             let lengths = if ctg.metadata().0 == ContigType::Target {
                 &ref_lengths
             } else {
-                &qry_lengths
+                bail!("Last contig ({:?}) is not a target contig.", ctg.metadata())
             };
             let ctg_length = lengths.get(ctg.metadata().1.deref()).with_context(|| {
                 format!(
@@ -212,7 +206,7 @@ pub fn update_contig_boundaries(
 }
 
 pub fn write_consensus_fa(
-    regions: RegionIntervals<(ContigType, String)>,
+    regions: RegionIntervals<(ContigType, String, Strand)>,
     ref_fh: &mut FastaReaderHandle,
     qry_fh: &mut FastaReaderHandle,
     mut output_fa: Box<dyn Write>,
@@ -226,7 +220,7 @@ pub fn write_consensus_fa(
         writeln!(output_fa, ">{ref_name}")?;
 
         for ctg in ctgs {
-            let (categ, ctg_name) = ctg.metadata();
+            let (categ, ctg_name, ctg_strand) = ctg.metadata();
             let fa_fh = match categ {
                 ContigType::Target => &mut *ref_fh,
                 ContigType::Query => &mut *qry_fh,
@@ -237,9 +231,19 @@ pub fn write_consensus_fa(
                 continue;
             }
 
-            let seq = fa_fh.fetch(ctg_name, ctg.first.try_into()?, ctg.last.try_into()?)?;
-
-            output_fa.write_all(seq.sequence().as_ref())?;
+            let rec = fa_fh.fetch(ctg_name, ctg.first.try_into()?, ctg.last.try_into()?)?;
+            match ctg_strand {
+                Strand::Forward => {
+                    let seq = rec.sequence().as_ref();
+                    output_fa.write_all(seq)?;
+                }
+                Strand::Reverse => {
+                    let mut seq = vec![0; rec.sequence().as_ref().len()];
+                    seq.copy_from_slice(rec.sequence().as_ref());
+                    seq.reverse();
+                    output_fa.write_all(&seq)?;
+                }
+            };
 
             if let Some(bed_fh) = output_bed.as_mut() {
                 writeln!(

@@ -99,7 +99,7 @@ fn main() -> eyre::Result<()> {
         None
     };
 
-    io::update_contig_boundaries(&mut new_ctgs, &ref_fh, &qry_fh)?;
+    io::update_contig_boundaries(&mut new_ctgs, &ref_fh)?;
 
     log::info!("Writing concensus fasta...");
     io::write_consensus_fa(new_ctgs, &mut ref_fh, &mut qry_fh, output_fa, output_bed)?;

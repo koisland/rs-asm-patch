@@ -9,9 +9,11 @@ use crate::interval::{
     in_roi, merge_overlapping_intervals, ContigType, RegionIntervalTrees, RegionIntervals,
 };
 
-fn merge_collapse_rows_by_rle_id(
-    itvs: Vec<(usize, Interval<(ContigType, String)>)>,
-) -> Vec<Interval<(ContigType, String)>> {
+type ReplaceInterval = Interval<(ContigType, String, Strand)>;
+
+fn merge_collapse_rows_by_rle_id<T: Clone + std::cmp::PartialEq>(
+    itvs: Vec<(usize, Interval<T>)>,
+) -> Vec<Interval<T>> {
     let mut final_itvs = vec![];
 
     // Merge overlapping intervals based on rle id.
@@ -36,7 +38,7 @@ pub fn get_concensus<T: Clone + Debug>(
     ref_misasm_itree: RegionIntervalTrees<T>,
     _qry_misasm_itree: RegionIntervalTrees<T>,
     bp_extend_patch: Option<u32>,
-) -> eyre::Result<RegionIntervals<(ContigType, String)>> {
+) -> eyre::Result<RegionIntervals<(ContigType, String, Strand)>> {
     let mut final_rows = HashMap::new();
     let bp_extend_patch = bp_extend_patch.unwrap_or(0) as i32;
     if bp_extend_patch != 0 {
@@ -53,7 +55,7 @@ pub fn get_concensus<T: Clone + Debug>(
             } else {
                 None
             };
-        let mut new_ctgs: Vec<Interval<(ContigType, String)>> = vec![];
+        let mut new_ctgs: Vec<ReplaceInterval> = vec![];
         let Some((rid, rlen)) = impg
             .seq_index
             .get_id(rname)
@@ -87,7 +89,7 @@ pub fn get_concensus<T: Clone + Debug>(
             new_ctgs.push(Interval::new(
                 correct_coords.0,
                 correct_coords.1,
-                (ContigType::Target, rname.to_owned()),
+                (ContigType::Target, rname.to_owned(), Strand::Forward),
             ));
 
             log::debug!("{mtype:?} at {rname}:{mstart}-{mstop}.");
@@ -129,7 +131,7 @@ pub fn get_concensus<T: Clone + Debug>(
                     new_ctgs.push(Interval::new(
                         qstart,
                         qstop,
-                        (ContigType::Query, qname.to_owned()),
+                        (ContigType::Query, qname.to_owned(), strand),
                     ));
                 }
             }
@@ -139,17 +141,17 @@ pub fn get_concensus<T: Clone + Debug>(
         new_ctgs.push(Interval::new(
             rstart,
             rlen.try_into()?,
-            (ContigType::Target, rname.to_owned()),
+            (ContigType::Target, rname.to_owned(), Strand::Forward),
         ));
 
         let mut rle_id = 0;
-        let mut collapsed_rows: Vec<(usize, Interval<(ContigType, String)>)> = vec![];
+        let mut collapsed_rows: Vec<(usize, ReplaceInterval)> = vec![];
         // Group by ctg_name and ctg_type and find min start and max stop coordinate.
         for (_, ctg_grp_rows) in &new_ctgs.iter().chunk_by(|ctg| &ctg.metadata) {
             // Store id to sort later.
             rle_id += 1;
 
-            let rows: Vec<&Interval<(ContigType, String)>> = ctg_grp_rows.collect_vec();
+            let rows: Vec<&ReplaceInterval> = ctg_grp_rows.collect_vec();
             let (mut min_start, mut max_stop) = (i32::MAX, 0);
             for ctg in rows.iter() {
                 if ctg.first < min_start {
