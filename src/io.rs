@@ -13,7 +13,7 @@ use impg::paf::Strand;
 use itertools::Itertools;
 use noodles::{
     bgzf::{self, IndexedReader},
-    fasta,
+    fasta::{self, record::Sequence},
 };
 
 use super::interval::{ContigInfo, ContigType, RegionIntervalTrees, RegionIntervals};
@@ -234,14 +234,12 @@ pub fn write_consensus_fa(
             let rec = fa_fh.fetch(ctg_name, ctg.first.try_into()?, ctg.last.try_into()?)?;
             match ctg_strand {
                 Strand::Forward => {
-                    let seq = rec.sequence().as_ref();
-                    output_fa.write_all(seq)?;
+                    output_fa.write_all(rec.sequence().as_ref())?;
                 }
                 Strand::Reverse => {
-                    let mut seq = vec![0; rec.sequence().as_ref().len()];
-                    seq.copy_from_slice(rec.sequence().as_ref());
-                    seq.reverse();
-                    output_fa.write_all(&seq)?;
+                    let revcomp_seq: Sequence =
+                        rec.sequence().complement().collect::<Result<_, _>>()?;
+                    output_fa.write_all(revcomp_seq.as_ref())?;
                 }
             };
 
