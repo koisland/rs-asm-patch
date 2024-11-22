@@ -102,6 +102,7 @@ pub fn get_concensus<T: Clone + Debug>(
     ref_misasm_itree: RegionIntervalTrees<T>,
     _qry_misasm_itree: RegionIntervalTrees<T>,
     bp_extend_patch: Option<u32>,
+    bp_subset_diff: Option<u32>,
 ) -> eyre::Result<RegionIntervals<ContigInfo>> {
     let mut final_rows = HashMap::new();
     let bp_extend_patch = bp_extend_patch.unwrap_or(0) as i32;
@@ -159,59 +160,69 @@ pub fn get_concensus<T: Clone + Debug>(
 
             log::debug!("{mtype:?} at {rname}:{mstart}-{mstop} of {mlen} bp.");
             // Liftover coordinates.
-            let liftover = impg.query(rid, mstart, mstop);
+            // Remove original interval.
+            let mut liftover = impg.query(rid, mstart, mstop);
+            liftover
+                .retain(|(itv, _, _)| (itv.first, itv.last, itv.metadata) != (mstart, mstop, rid));
 
-            // TODO: Remove and minmax.
-            // Groupby rid.
-            for (_, ritv_grps) in &liftover
-                .into_iter()
-                // Omit input interval.
-                .filter(|(itv, _, _)| (itv.first, itv.last, itv.metadata) != (mstart, mstop, rid))
-                .sorted_by(|(itv1, _, _), (itv2, _, _)| {
-                    impg.seq_index
-                        .get_name(itv1.metadata)
-                        .cmp(&impg.seq_index.get_name(itv2.metadata))
-                })
-                .chunk_by(|(itv, _, _)| itv.metadata)
-            {
-                let itvs = ritv_grps.into_iter().collect_vec();
-                let Some(optimal_qitvs) = dp_itv_subset(&itvs, mlen) else {
-                    log::debug!("\tUnable to get a subset of {:?} whose length is greater than or equal to {mlen:?}.", itvs.iter().map(|a| a.0).collect_vec());
-                    continue;
-                };
-
-                for (qitv, cg, _ritv) in optimal_qitvs
-                    .into_iter()
-                    .sorted_by(|a, b| a.2.first.cmp(&b.2.first))
-                {
-                    let Some(qname) = impg.seq_index.get_name(qitv.metadata) else {
-                        bail!("Invalid query index. ({})", qitv.metadata)
-                    };
-                    let itv_diff = qitv.last - qitv.first;
-                    let strand = if itv_diff > 0 {
-                        Strand::Forward
-                    } else {
-                        Strand::Reverse
-                    };
-                    if itv_diff == 0 {
-                        continue;
-                    }
-                    // Correct coordinates.
-                    let (qstart, qstop) = if strand == Strand::Reverse {
-                        (qitv.last, qitv.first)
-                    } else {
-                        (qitv.first, qitv.last)
-                    };
-                    let identity = blast_identity(&cg)?;
-                    log::debug!("\tLifted to {qname}:{qstart}-{qstop} ({strand:?}) with identity {identity}.");
-
-                    // TODO: Use ritv to sort after optimal found
-                    new_ctgs.push(Interval::new(
-                        qstart,
-                        qstop,
-                        (ContigType::Query, qname.to_owned(), strand),
-                    ));
+            let mlen = mlen
+                .checked_sub(bp_subset_diff.unwrap_or(0) as usize)
+                .unwrap_or(mlen);
+            let optimal_qitvs = if liftover.len() <= 1 {
+                liftover
+            } else if let Some(optimal_qitvs) = dp_itv_subset(&liftover, mlen) {
+                log::debug!("\tGenerated subset of intervals where the combined length is greater than or equal to {mlen:?}.");
+                optimal_qitvs
+            } else {
+                log::debug!("\tUnable to get a subset of the following intervals where the combined length is greater than or equal to {mlen:?}.");
+                for itv in liftover.iter().sorted_by(|a, b| a.2.first.cmp(&b.2.first)) {
+                    log::debug!(
+                        "\t\t{:?}",
+                        (
+                            impg.seq_index.get_name(itv.0.metadata),
+                            itv.0,
+                            itv.0.len(),
+                            itv.2,
+                            itv.2.len()
+                        )
+                    )
                 }
+                continue;
+            };
+
+            for (qitv, cg, ritv) in optimal_qitvs
+                .into_iter()
+                .sorted_by(|a, b| a.2.first.cmp(&b.2.first))
+            {
+                let Some(qname) = impg.seq_index.get_name(qitv.metadata) else {
+                    bail!("Invalid query index. ({})", qitv.metadata)
+                };
+                let itv_diff = qitv.last - qitv.first;
+                let strand = if itv_diff > 0 {
+                    Strand::Forward
+                } else {
+                    Strand::Reverse
+                };
+                if itv_diff == 0 {
+                    continue;
+                }
+                // Correct coordinates.
+                let (qstart, qstop) = if strand == Strand::Reverse {
+                    (qitv.last, qitv.first)
+                } else {
+                    (qitv.first, qitv.last)
+                };
+                let identity = blast_identity(&cg)?;
+                log::debug!(
+                    "\tLifted to {qname}:{qstart}-{qstop} ({strand:?}) ({}) with identity {identity}.",
+                    qstop-qstart
+                );
+                log::debug!("\tCorresponds to {:?}", ritv);
+                new_ctgs.push(Interval::new(
+                    qstart,
+                    qstop,
+                    (ContigType::Query, qname.to_owned(), strand),
+                ));
             }
         }
 

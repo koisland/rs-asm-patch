@@ -8,7 +8,7 @@ use std::{
 };
 
 use coitrees::{COITree, GenericInterval, Interval, IntervalTree};
-use eyre::{bail, Context, ContextCompat};
+use eyre::{Context, ContextCompat};
 use impg::paf::Strand;
 use itertools::Itertools;
 use noodles::{
@@ -170,7 +170,7 @@ pub fn update_contig_boundaries(
         .flat_map(|rec| str::from_utf8(rec.name()).map(|name| (name, rec.length())))
         .collect();
 
-    for (_tname, ctgs) in ctgs.iter_mut() {
+    for (tname, ctgs) in ctgs.iter_mut() {
         // If only one contig or only category type if target, ignore it.
         if ctgs.len() == 1
             || ctgs
@@ -188,7 +188,13 @@ pub fn update_contig_boundaries(
             let lengths = if ctg.metadata().0 == ContigType::Target {
                 &ref_lengths
             } else {
-                bail!("Last contig ({:?}) is not a target contig.", ctg.metadata())
+                // TODO: Figure out why this is the case.
+                log::debug!(
+                    "Last contig for {tname} ({:?}) is not a target contig. Skipping...",
+                    ctg.metadata()
+                );
+                ctgs.clear();
+                continue;
             };
             let ctg_length = lengths.get(ctg.metadata().1.deref()).with_context(|| {
                 format!(

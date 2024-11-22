@@ -31,6 +31,7 @@ fn debug_args() -> eyre::Result<cli::Args> {
         output_bed: Some(PathBuf::from_str("test.bed")?),
         bp_extend_patch: None,
         bp_merge_misasm: None,
+        bp_subset_diff: None,
         log_level: String::from("Debug"),
     })
 }
@@ -74,6 +75,7 @@ fn main() -> eyre::Result<()> {
         ref_misasm_records,
         qry_misasm_records,
         args.bp_extend_patch,
+        args.bp_subset_diff,
     )?;
     log::info!(
         "Generated {:?} consensus sequences.",

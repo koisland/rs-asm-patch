@@ -32,6 +32,10 @@ pub struct Args {
     #[arg(long)]
     pub bp_extend_patch: Option<u32>,
 
+    /// Allow some difference in bp when determing optimal interval subset.
+    #[arg(long)]
+    pub bp_subset_diff: Option<u32>,
+
     /// Regions to filter alignments in reference.
     #[arg(long)]
     pub ref_roi_bed: Option<PathBuf>,
