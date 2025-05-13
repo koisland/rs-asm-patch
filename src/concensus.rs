@@ -4,7 +4,8 @@ use coitrees::{GenericInterval, Interval};
 use eyre::bail;
 use impg::{
     impg::{AdjustedInterval, CigarOp},
-    paf::{PafRecord, Strand},
+    paf::{PartialPafRecord, Strand},
+    seqidx::SequenceIndex,
 };
 use itertools::Itertools;
 
@@ -96,8 +97,8 @@ pub fn blast_identity(cigar: &[CigarOp]) -> eyre::Result<f32> {
 }
 
 pub fn get_concensus<T: Clone + Debug>(
-    paf_rows: &[PafRecord],
-    paf_file: &str,
+    paf_rows: &[(Vec<PartialPafRecord>, String)],
+    seq_idx: SequenceIndex,
     ref_roi_itree: Option<RegionIntervalTrees<T>>,
     ref_misasm_itree: RegionIntervalTrees<T>,
     _qry_misasm_itree: RegionIntervalTrees<T>,
@@ -110,7 +111,7 @@ pub fn get_concensus<T: Clone + Debug>(
         log::info!("Extending patched regions by {bp_extend_patch} bp.")
     }
 
-    let impg = impg::impg::Impg::from_paf_records(paf_rows, paf_file)
+    let impg = impg::impg::Impg::from_multi_paf_records(paf_rows, seq_idx)
         .map_err(|err| eyre::Error::msg(format!("{err:?}")))?;
 
     for (rname, ref_rgn_misassemblies) in ref_misasm_itree.iter() {

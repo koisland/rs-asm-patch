@@ -1,4 +1,3 @@
-[submodule "submodules/impg"]
-	path = submodules/impg
-	url = https://github.com/koisland/impg.git
-	branch = dev
+[submodule "src/impg"]
+	path = src/impg
+	url = https://github.com/pangenome/impg.git

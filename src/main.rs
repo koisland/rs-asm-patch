@@ -7,7 +7,6 @@ use std::{
 
 use clap::Parser;
 use coitrees::{Interval, IntervalTree};
-use eyre::ContextCompat;
 use log::LevelFilter;
 use misassembly::read_misassemblies;
 use simple_logger::SimpleLogger;
@@ -46,10 +45,11 @@ fn main() -> eyre::Result<()> {
 
     // TODO: Add option to replace with minimap2-rs
     // TODO: Remove overlapping alignments.
-    let paf_file = File::open(&args.paf)?;
-    let paf_reader = BufReader::new(paf_file);
-    let paf_records =
-        impg::paf::parse_paf(paf_reader).map_err(|err| eyre::Error::msg(format!("{err:?}")))?;
+    let paf_reader = BufReader::new(File::open(&args.paf)?);
+
+    let mut seq_idx = impg::seqidx::SequenceIndex::new();
+    let paf_records = impg::paf::parse_paf(paf_reader, &mut seq_idx)
+        .map_err(|err| eyre::Error::msg(format!("{err:?}")))?;
 
     // Read ref roi bed.
     let ref_roi_records = io::read_bed(args.ref_roi_bed, |start, stop, _other_cols| {
@@ -69,8 +69,8 @@ fn main() -> eyre::Result<()> {
     let qry_misasm_records = read_misassemblies(args.qry_misasm_bed, args.bp_merge_misasm)?;
 
     let mut new_ctgs = concensus::get_concensus(
-        &paf_records,
-        args.paf.to_str().context("Invalid paf filename.")?,
+        &[(paf_records, args.paf.to_string_lossy().to_string())],
+        seq_idx,
         ref_roi_records,
         ref_misasm_records,
         qry_misasm_records,
